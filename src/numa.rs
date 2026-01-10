@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::OnceLock};
 #[cfg(feature = "numa")]
 static MAPPING: OnceLock<HashMap<usize, Vec<usize>>> = OnceLock::new();
 
-#[cfg(feature = "numa")]
+#[cfg(all(feature = "numa", target_os = "linux"))]
 fn mapping() -> HashMap<usize, Vec<usize>> {
     fn initialize() -> HashMap<usize, Vec<usize>> {
         let mut map = HashMap::new();
@@ -34,7 +34,51 @@ fn mapping() -> HashMap<usize, Vec<usize>> {
     MAPPING.get_or_init(initialize).clone()
 }
 
-#[cfg(feature = "numa")]
+#[cfg(all(feature = "numa", target_os = "windows"))]
+fn mapping() -> HashMap<usize, Vec<usize>> {
+    fn initialize() -> HashMap<usize, Vec<usize>> {
+        let mut map = HashMap::new();
+
+        // Query highest NUMA node
+        let mut highest_node: u32 = 0;
+        let result = unsafe { api::GetNumaHighestNodeNumber(&mut highest_node) };
+
+        if result == 0 {
+            return map; // NUMA not available
+        }
+
+        for node in 0..=highest_node {
+            let mut affinity = api::GROUP_AFFINITY { Mask: 0, Group: 0, Reserved: [0; 3] };
+
+            let ok = unsafe { api::GetNumaNodeProcessorMaskEx(node as u16, &mut affinity) };
+            if ok == 0 {
+                continue;
+            }
+
+            let mut cpus = Vec::new();
+
+            let mask = affinity.Mask;
+            let group = affinity.Group as usize;
+
+            for bit in 0..64 {
+                if (mask & (1u64 << bit)) != 0 {
+                    // Windows CPU index = (group * 64) + bit
+                    cpus.push(group * 64 + bit);
+                }
+            }
+
+            if !cpus.is_empty() {
+                map.insert(node as usize, cpus);
+            }
+        }
+
+        map
+    }
+
+    MAPPING.get_or_init(initialize).clone()
+}
+
+#[cfg(all(feature = "numa", target_os = "linux"))]
 pub fn bind_thread(id: usize) {
     fn num_cpus() -> usize {
         mapping().values().map(|cpus| cpus.len()).sum()
@@ -47,6 +91,39 @@ pub fn bind_thread(id: usize) {
         api::numa_run_on_node(node as i32);
         api::numa_set_preferred(node as i32);
     }
+}
+
+#[cfg(all(feature = "numa", target_os = "windows"))]
+pub fn bind_thread(id: usize) {
+    fn num_cpus() -> usize {
+        mapping().values().map(|cpus| cpus.len()).sum()
+    }
+
+    let num_cpus = num_cpus();
+    if num_cpus == 0 {
+        return;
+    }
+
+    let id = id % num_cpus;
+
+    // iIdentify which node owns this CPU ID
+    let node = mapping().iter().find_map(|(node, cpus)| cpus.contains(&id).then_some(*node)).unwrap_or(0);
+    // retrieve the affinity mask for that specific node
+    let mut affinity = api::GROUP_AFFINITY { Mask: 0, Group: 0, Reserved: [0; 3] };
+    let ok = unsafe { api::GetNumaNodeProcessorMaskEx(node as u16, &mut affinity) };
+
+    if ok != 0 {
+        unsafe {
+            let current_thread = api::GetCurrentThread();
+            // bind the thread to the node's processor group/mask
+            api::SetThreadGroupAffinity(current_thread, &affinity, std::ptr::null_mut());
+        }
+    }
+}
+
+#[cfg(not(feature = "numa"))]
+pub fn bind_thread(_id: usize) {
+    // No-op when NUMA is disabled
 }
 
 /// Marker trait for types that can be safely replicated per NUMA node.
@@ -65,7 +142,7 @@ unsafe impl<T: NumaValue> Send for NumaReplicator<T> {}
 unsafe impl<T: NumaValue> Sync for NumaReplicator<T> {}
 
 impl<T: NumaValue> NumaReplicator<T> {
-    #[cfg(feature = "numa")]
+    #[cfg(all(feature = "numa", target_os = "linux"))]
     pub unsafe fn new<S: Fn() -> T>(source: S) -> Self {
         if api::numa_available() < 0 {
             panic!("NUMA is not available on this system");
@@ -94,11 +171,43 @@ impl<T: NumaValue> NumaReplicator<T> {
         Self { allocated }
     }
 
+    #[cfg(all(feature = "numa", target_os = "windows"))]
+    pub unsafe fn new<S: Fn() -> T>(source: S) -> Self {
+        let mut allocated = Vec::new();
+
+        for (node, cpus) in mapping() {
+            if cpus.is_empty() {
+                continue;
+            }
+
+            let ptr = api::VirtualAllocExNuma(
+                api::GetCurrentProcess(),
+                std::ptr::null_mut(),
+                std::mem::size_of::<T>(),
+                api::MEM_COMMIT | api::MEM_RESERVE,
+                api::PAGE_READWRITE,
+                node as u32,
+            );
+
+            if (ptr as *mut u8).is_null() {
+                panic!("Failed to allocate memory on NUMA node {node}");
+            }
+
+            let tptr = ptr as *mut T;
+            std::ptr::write(tptr, source());
+
+            allocated.push(tptr);
+        }
+
+        Self { allocated }
+    }
+
     #[cfg(not(feature = "numa"))]
     pub unsafe fn new<S: Fn() -> T>(source: S) -> Self {
-        let ptr = std::alloc::alloc(std::alloc::Layout::new::<T>()) as *mut T;
+        let layout = std::alloc::Layout::new::<T>();
+        let ptr = std::alloc::alloc(layout) as *mut T;
         if ptr.is_null() {
-            panic!("Failed to allocate memory for NumaReplicator");
+            std::alloc::handle_alloc_error(layout);
         }
 
         std::ptr::write(ptr, source());
@@ -106,12 +215,20 @@ impl<T: NumaValue> NumaReplicator<T> {
         Self { allocated: vec![ptr] }
     }
 
-    #[cfg(feature = "numa")]
+    #[cfg(all(feature = "numa", target_os = "linux"))]
     pub unsafe fn get(&self) -> &T {
         let cpu = libc::sched_getcpu();
         let node = api::numa_node_of_cpu(cpu);
 
         let index = mapping().iter().enumerate().find_map(|(i, (n, _))| (*n as i32 == node).then_some(i)).unwrap_or(0);
+        &*self.allocated[index]
+    }
+
+    #[cfg(all(feature = "numa", target_os = "windows"))]
+    pub unsafe fn get(&self) -> &T {
+        let cpu = api::GetCurrentProcessorNumber() as usize;
+        let node = mapping().iter().find_map(|(n, cpus)| cpus.contains(&cpu).then_some(*n)).unwrap_or(0);
+        let index = mapping().iter().enumerate().find_map(|(i, (n, _))| (*n == node).then_some(i)).unwrap_or(0);
         &*self.allocated[index]
     }
 
@@ -131,15 +248,24 @@ impl<T: NumaValue> Drop for NumaReplicator<T> {
             unsafe {
                 std::ptr::drop_in_place(ptr);
 
-                #[cfg(feature = "numa")]
+                #[cfg(all(feature = "numa", target_os = "linux"))]
                 api::numa_free(ptr as *mut libc::c_void, std::mem::size_of::<T>());
+
+                #[cfg(all(feature = "numa", target_os = "windows"))]
+                api::VirtualFree(ptr as *mut std::ffi::c_void, 0, api::MEM_RELEASE);
+
+                #[cfg(not(feature = "numa"))]
+                {
+                    let layout = std::alloc::Layout::new::<T>();
+                    std::alloc::dealloc(ptr as *mut u8, layout);
+                }
             }
         }
     }
 }
 
 #[allow(dead_code)]
-#[cfg(feature = "numa")]
+#[cfg(all(feature = "numa", target_os = "linux"))]
 mod api {
     use libc::{c_int, c_void, size_t};
 
@@ -165,5 +291,39 @@ mod api {
         pub fn numa_allocate_cpumask() -> *mut Bitmask;
         pub fn numa_bitmask_free(mask: *mut Bitmask);
         pub fn numa_bitmask_isbitset(mask: *const Bitmask, n: c_int) -> c_int;
+    }
+}
+
+#[allow(dead_code)]
+#[cfg(all(feature = "numa", target_os = "windows"))]
+mod api {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    #[allow(non_snake_case)]
+    pub struct GROUP_AFFINITY {
+        pub Mask: u64,
+        pub Group: u16,
+        pub Reserved: [u16; 3],
+    }
+
+    pub const MEM_COMMIT: u32 = 0x00001000;
+    pub const MEM_RESERVE: u32 = 0x00002000;
+    pub const MEM_RELEASE: u32 = 0x00008000;
+    pub const PAGE_READWRITE: u32 = 0x04;
+
+    extern "system" {
+        pub fn GetNumaHighestNodeNumber(highest_node_number: *mut u32) -> i32;
+        pub fn GetNumaNodeProcessorMaskEx(node: u16, processor_mask: *mut GROUP_AFFINITY) -> i32;
+        pub fn GetCurrentProcessorNumber() -> u32;
+        pub fn GetCurrentProcess() -> isize;
+        pub fn VirtualAllocExNuma(
+            process: isize, address: *mut c_void, size: usize, allocation_type: u32, protect: u32, preferred: u32,
+        ) -> *mut c_void;
+        pub fn VirtualFree(address: *mut c_void, size: usize, free_type: u32) -> i32;
+        pub fn GetCurrentThread() -> isize;
+        pub fn SetThreadGroupAffinity(
+            thread: isize, group_affinity: *const GROUP_AFFINITY, previous_affinity: *mut GROUP_AFFINITY,
+        ) -> i32;
     }
 }
