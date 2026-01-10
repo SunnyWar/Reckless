@@ -1,3 +1,5 @@
+const MAXIMUM_PROC_PER_GROUP: usize = 64;
+
 #[cfg(feature = "numa")]
 use std::{collections::HashMap, sync::OnceLock};
 
@@ -39,38 +41,31 @@ fn mapping() -> HashMap<usize, Vec<usize>> {
     fn initialize() -> HashMap<usize, Vec<usize>> {
         let mut map = HashMap::new();
 
-        // Query highest NUMA node
         let mut highest_node: u32 = 0;
         let result = unsafe { api::GetNumaHighestNodeNumber(&mut highest_node) };
 
         if result == 0 {
-            return map; // NUMA not available
+            return map;
         }
 
-        for node in 0..=highest_node {
-            let mut affinity = api::GROUP_AFFINITY { Mask: 0, Group: 0, Reserved: [0; 3] };
+        let group_count = unsafe { api::GetActiveProcessorGroupCount() } as usize;
 
-            let ok = unsafe { api::GetNumaNodeProcessorMaskEx(node as u16, &mut affinity) };
-            if ok == 0 {
-                continue;
-            }
-
-            let mut cpus = Vec::new();
-
-            let mask = affinity.Mask;
-            let group = affinity.Group as usize;
-
-            for bit in 0..64 {
-                if (mask & (1u64 << bit)) != 0 {
-                    // Windows CPU index = (group * 64) + bit
-                    cpus.push(group * 64 + bit);
+        for group in 0..group_count {
+            let count = unsafe { api::GetActiveProcessorCount(group as u16) } as usize;
+            for number in 0..count {
+                let processor = api::PROCESSOR_NUMBER { Group: group as u16, Number: number as u8, Reserved: 0 };
+                let mut node = 0u16;
+                let ok = unsafe { api::GetNumaProcessorNodeEx(&processor, &mut node) };
+                if ok == 0 || (node as u32) > highest_node {
+                    continue;
                 }
-            }
 
-            if !cpus.is_empty() {
-                map.insert(node as usize, cpus);
+                let cpu = group * MAXIMUM_PROC_PER_GROUP + number;
+                map.entry(node as usize).or_default().push(cpu);
             }
         }
+
+        map.retain(|_, cpus| !cpus.is_empty());
 
         map
     }
@@ -95,29 +90,44 @@ pub fn bind_thread(id: usize) {
 
 #[cfg(all(feature = "numa", target_os = "windows"))]
 pub fn bind_thread(id: usize) {
-    fn num_cpus() -> usize {
-        mapping().values().map(|cpus| cpus.len()).sum()
-    }
-
-    let num_cpus = num_cpus();
+    let map = mapping();
+    let num_cpus = map.values().map(|cpus| cpus.len()).sum::<usize>();
     if num_cpus == 0 {
         return;
     }
 
     let id = id % num_cpus;
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_unstable_by_key(|&(node, _)| node);
 
-    // iIdentify which node owns this CPU ID
-    let node = mapping().iter().find_map(|(node, cpus)| cpus.contains(&id).then_some(*node)).unwrap_or(0);
-    // retrieve the affinity mask for that specific node
-    let mut affinity = api::GROUP_AFFINITY { Mask: 0, Group: 0, Reserved: [0; 3] };
-    let ok = unsafe { api::GetNumaNodeProcessorMaskEx(node as u16, &mut affinity) };
+    let mut remaining = id;
+    let mut cpu = None;
 
-    if ok != 0 {
-        unsafe {
-            let current_thread = api::GetCurrentThread();
-            // bind the thread to the node's processor group/mask
-            api::SetThreadGroupAffinity(current_thread, &affinity, std::ptr::null_mut());
+    for (_, cpus) in entries {
+        if cpus.is_empty() {
+            continue;
         }
+
+        if remaining < cpus.len() {
+            cpu = Some(cpus[remaining]);
+            break;
+        } else {
+            remaining -= cpus.len();
+        }
+    }
+
+    let cpu = match cpu {
+        Some(cpu) => cpu,
+        None => return,
+    };
+
+    let group = (cpu / MAXIMUM_PROC_PER_GROUP) as u16;
+    let bit = cpu % MAXIMUM_PROC_PER_GROUP;
+    let affinity = api::GROUP_AFFINITY { Mask: 1u64 << bit, Group: group, Reserved: [0; 3] };
+
+    unsafe {
+        let current_thread = api::GetCurrentThread();
+        api::SetThreadGroupAffinity(current_thread, &affinity, std::ptr::null_mut());
     }
 }
 
@@ -307,6 +317,14 @@ mod api {
         pub Reserved: [u16; 3],
     }
 
+    #[repr(C)]
+    #[allow(non_snake_case)]
+    pub struct PROCESSOR_NUMBER {
+        pub Group: u16,
+        pub Number: u8,
+        pub Reserved: u8,
+    }
+
     pub const MEM_COMMIT: u32 = 0x00001000;
     pub const MEM_RESERVE: u32 = 0x00002000;
     pub const MEM_RELEASE: u32 = 0x00008000;
@@ -314,7 +332,9 @@ mod api {
 
     extern "system" {
         pub fn GetNumaHighestNodeNumber(highest_node_number: *mut u32) -> i32;
-        pub fn GetNumaNodeProcessorMaskEx(node: u16, processor_mask: *mut GROUP_AFFINITY) -> i32;
+        pub fn GetActiveProcessorGroupCount() -> u16;
+        pub fn GetActiveProcessorCount(group_number: u16) -> u32;
+        pub fn GetNumaProcessorNodeEx(processor: *const PROCESSOR_NUMBER, node_number: *mut u16) -> i32;
         pub fn GetCurrentProcessorNumber() -> u32;
         pub fn GetCurrentProcess() -> isize;
         pub fn VirtualAllocExNuma(
