@@ -14,6 +14,11 @@ use crate::{
     time::TimeManager,
 };
 
+use hwlocality::Topology;
+use hwlocality::cpu::binding::CpuBindingFlags;
+use hwlocality::cpu::cpuset::CpuSet;
+use hwlocality::current_thread_id;
+
 pub struct ThreadPool {
     pub workers: Vec<WorkerThread>,
     pub vector: Vec<Box<ThreadData>>,
@@ -225,12 +230,16 @@ fn make_worker_thread(id: Option<usize>) -> WorkerThread {
     let (sender, receiver) = make_work_channel();
 
     let handle = std::thread::spawn(move || {
-        #[cfg(feature = "numa")]
         if let Some(id) = id {
-            crate::numa::bind_thread(id);
+            if let Ok(topology) = hwlocality::Topology::new() {
+                let mut cpuset = CpuSet::new();
+                cpuset.set(id);
+                let tid = current_thread_id();
+                if let Err(e) = topology.bind_thread_cpu(tid, &cpuset, CpuBindingFlags::empty()) {
+                    eprintln!("Failed to bind thread: {:?}", e);
+                }
+            }
         }
-        #[cfg(not(feature = "numa"))]
-        let _ = id;
 
         while let Ok(work) = receiver.receiver.recv() {
             work();
@@ -246,15 +255,35 @@ fn make_worker_thread(id: Option<usize>) -> WorkerThread {
 }
 
 fn make_worker_threads(num_threads: usize) -> Vec<WorkerThread> {
-    #[cfg(feature = "numa")]
-    {
-        let concurrency = std::thread::available_parallelism().map_or(1, |n| n.get());
-        (0..num_threads).map(|id| make_worker_thread((num_threads >= concurrency / 2).then_some(id))).collect()
+    let mut logical_ids = Vec::new();
+
+    if let Ok(topology) = Topology::new() {
+        let mut kinds: Vec<hwlocality::cpu::kind::CpuKind> = match topology.cpu_kinds() {
+            Ok(iter) => iter.collect(),
+            Err(_) => Vec::new(),
+        };
+        kinds.reverse();
+
+        for kind in kinds {
+            let needed = num_threads.saturating_sub(logical_ids.len());
+            if needed == 0 {
+                break;
+            }
+
+            logical_ids.extend(kind.cpuset.iter_set().take(needed).map(usize::from));
+        }
     }
-    #[cfg(not(feature = "numa"))]
-    {
-        (0..num_threads).map(|_| make_worker_thread(None)).collect()
+
+    // if topology failed or didn't provide enough IDs
+    if logical_ids.len() < num_threads {
+        for i in logical_ids.len()..num_threads {
+            logical_ids.push(i);
+        }
     }
+
+    logical_ids.truncate(num_threads);
+
+    logical_ids.into_iter().map(|id| make_worker_thread(Some(id))).collect()
 }
 
 fn make_thread_data(shared: Arc<SharedContext>, worker_threads: &[WorkerThread]) -> Vec<Box<ThreadData>> {

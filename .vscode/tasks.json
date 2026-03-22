@@ -1,0 +1,107 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Cargo: build (vcvars64)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\cargo_with_vcvars.cmd",
+      "args": [
+        "build"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "C:\\Windows\\System32\\cmd.exe",
+          "args": [
+            "/d",
+            "/c"
+          ]
+        }
+      },
+      "problemMatcher": "$rustc",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Cargo: check (vcvars64)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\cargo_with_vcvars.cmd",
+      "args": [
+        "check"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "C:\\Windows\\System32\\cmd.exe",
+          "args": [
+            "/d",
+            "/c"
+          ]
+        }
+      },
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "Cargo: test (vcvars64)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\cargo_with_vcvars.cmd",
+      "args": [
+        "test"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "C:\\Windows\\System32\\cmd.exe",
+          "args": [
+            "/d",
+            "/c"
+          ]
+        }
+      },
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "Cargo: clippy (vcvars64)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\cargo_with_vcvars.cmd",
+      "args": [
+        "clippy"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "C:\\Windows\\System32\\cmd.exe",
+          "args": [
+            "/d",
+            "/c"
+          ]
+        }
+      },
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "Run with SDE baseline",
+      "type": "shell",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--release"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "RUSTFLAGS": "-C target-cpu=x86-64-v4 -C target-feature=+gfni,+avx512bw,+avx512vl,+avx512vbmi,+avx512vbmi2,+avx512vnni,+avx512bitalg"
+        },
+        "shell": {
+          "executable": "C:\\Windows\\System32\\cmd.exe",
+          "args": [
+            "/d",
+            "/c"
+          ]
+        }
+      }
+    }
+  ]
+}

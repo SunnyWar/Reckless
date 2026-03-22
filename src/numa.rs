@@ -1,3 +1,39 @@
+use hwlocality::Topology;
+use hwlocality::object::types::ObjectType;
+/// Returns a Vec of (NUMA node index, Vec<logical CPU IDs>), sorted by node and efficiency.
+pub fn logical_ids_by_numa_node() -> Vec<(usize, Vec<usize>)> {
+    let mut result = Vec::new();
+    if let Ok(topology) = Topology::new() {
+        // Get all NUMA nodes (no ObjectFilter needed, returns iterator)
+        let numa_nodes = topology.objects_with_type(ObjectType::NUMANode);
+        // Get all cpu kinds, sorted by efficiency (P-cores first)
+        let mut kinds: Vec<hwlocality::cpu::kind::CpuKind> =
+            topology.cpu_kinds().map(|it| it.collect()).unwrap_or_default();
+        kinds.reverse();
+
+        for node in numa_nodes {
+            // node.cpuset() returns Option<&CpuSet>
+            if let Some(node_cpuset) = node.cpuset() {
+                let node_cpuset = node_cpuset.clone();
+                let mut logicals = Vec::new();
+                for kind in &kinds {
+                    // Intersect NUMA node cpuset with this kind's cpuset
+                    for cpu in node_cpuset.iter_set() {
+                        if kind.cpuset.is_set(cpu) {
+                            logicals.push(cpu.into());
+                        }
+                    }
+                }
+                if !logicals.is_empty() {
+                    if let Some(idx) = node.os_index() {
+                        result.push((idx, logicals));
+                    }
+                }
+            }
+        }
+    }
+    result
+}
 #[cfg(feature = "numa")]
 use std::{collections::HashMap, sync::OnceLock};
 

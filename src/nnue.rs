@@ -1,6 +1,8 @@
+/// Initialize NUMA-replicated NNUE weights. Call this at program startup.
+pub fn initialize() {
+    init_numa_parameters();
+}
 mod accumulator;
-
-pub use accumulator::threats::initialize;
 
 use crate::{
     board::{Board, BoardObserver},
@@ -102,6 +104,7 @@ pub struct Network {
     threat_stack: Box<[ThreatAccumulator]>,
     cache: AccumulatorCache,
     nnz_table: Box<[SparseEntry]>,
+    pub parameters: &'static Parameters,
 }
 
 impl Network {
@@ -124,11 +127,11 @@ impl Network {
     }
 
     pub fn full_refresh(&mut self, board: &Board) {
-        self.pst_stack[self.index].refresh(board, Color::White, &mut self.cache);
-        self.pst_stack[self.index].refresh(board, Color::Black, &mut self.cache);
+        self.pst_stack[self.index].refresh(board, Color::White, &mut self.cache, self.parameters);
+        self.pst_stack[self.index].refresh(board, Color::Black, &mut self.cache, self.parameters);
 
-        self.threat_stack[self.index].refresh(board, Color::White);
-        self.threat_stack[self.index].refresh(board, Color::Black);
+        self.threat_stack[self.index].refresh(board, Color::White, self.parameters);
+        self.threat_stack[self.index].refresh(board, Color::Black, self.parameters);
     }
 
     pub fn evaluate(&mut self, board: &Board) -> i32 {
@@ -142,12 +145,12 @@ impl Network {
 
             match self.can_update_pst(pov) {
                 Some(index) => self.update_pst_accumulator(index, board, pov),
-                None => self.pst_stack[self.index].refresh(board, pov, &mut self.cache),
+                None => self.pst_stack[self.index].refresh(board, pov, &mut self.cache, self.parameters),
             }
 
             match self.can_update_threats(pov) {
                 Some(index) => self.update_threat_accumulator(index, board, pov),
-                None => self.threat_stack[self.index].refresh(board, pov),
+                None => self.threat_stack[self.index].refresh(board, pov, self.parameters),
             }
         }
 
@@ -159,7 +162,7 @@ impl Network {
 
         for i in accurate..self.index {
             if let (prev, [current, ..]) = self.pst_stack.split_at_mut(i + 1) {
-                current.update(&prev[i], board, king, pov);
+                current.update(&prev[i], board, king, pov, self.parameters);
             }
         }
     }
@@ -169,7 +172,7 @@ impl Network {
 
         for i in accurate..self.index {
             if let (prev, [current, ..]) = self.threat_stack.split_at_mut(i + 1) {
-                unsafe { current.update(&prev[i], king, pov) };
+                unsafe { current.update(&prev[i], king, pov, self.parameters) };
             }
         }
     }
@@ -226,9 +229,9 @@ impl Network {
                 forward::activate_ft(&self.pst_stack[self.index], &self.threat_stack[self.index], board.side_to_move());
             let (nnz_indexes, nnz_count) = forward::find_nnz(&ft_out, &self.nnz_table);
 
-            let l1_out = forward::propagate_l1(ft_out, &nnz_indexes[..nnz_count], bucket);
-            let l2_out = forward::propagate_l2(l1_out, bucket);
-            let l3_out = forward::propagate_l3(l2_out, bucket);
+            let l1_out = forward::propagate_l1(ft_out, &nnz_indexes[..nnz_count], bucket, self.parameters);
+            let l2_out = forward::propagate_l2(l1_out, bucket, self.parameters);
+            let l3_out = forward::propagate_l3(l2_out, bucket, self.parameters);
 
             (l3_out * NETWORK_SCALE as f32) as i32
         }
@@ -254,10 +257,11 @@ impl Default for Network {
 
         Self {
             index: 0,
-            pst_stack: vec![PstAccumulator::new(); MAX_PLY].into_boxed_slice(),
+            pst_stack: vec![PstAccumulator::new(get_numa_parameters()); MAX_PLY].into_boxed_slice(),
             threat_stack: vec![ThreatAccumulator::new(); MAX_PLY].into_boxed_slice(),
             cache: AccumulatorCache::default(),
             nnz_table: nnz_table.into_boxed_slice(),
+            parameters: get_numa_parameters(),
         }
     }
 }
@@ -277,24 +281,40 @@ impl BoardObserver for Network {
 }
 
 #[repr(C)]
-struct Parameters {
-    ft_threat_weights: Aligned<[[i8; L1_SIZE]; 66864]>,
-    ft_piece_weights: Aligned<[[i16; L1_SIZE]; INPUT_BUCKETS * 768]>,
-    ft_biases: Aligned<[i16; L1_SIZE]>,
-    l1_weights: Aligned<[[i8; L2_SIZE * L1_SIZE]; OUTPUT_BUCKETS]>,
-    l1_biases: Aligned<[[f32; L2_SIZE]; OUTPUT_BUCKETS]>,
-    l2_weights: Aligned<[[[f32; L3_SIZE]; L2_SIZE]; OUTPUT_BUCKETS]>,
-    l2_biases: Aligned<[[f32; L3_SIZE]; OUTPUT_BUCKETS]>,
-    l3_weights: Aligned<[[f32; L3_SIZE]; OUTPUT_BUCKETS]>,
-    l3_biases: Aligned<[f32; OUTPUT_BUCKETS]>,
+pub struct Parameters {
+    pub ft_threat_weights: Aligned<[[i8; L1_SIZE]; 66864]>,
+    pub ft_piece_weights: Aligned<[[i16; L1_SIZE]; INPUT_BUCKETS * 768]>,
+    pub ft_biases: Aligned<[i16; L1_SIZE]>,
+    pub l1_weights: Aligned<[[i8; L2_SIZE * L1_SIZE]; OUTPUT_BUCKETS]>,
+    pub l1_biases: Aligned<[[f32; L2_SIZE]; OUTPUT_BUCKETS]>,
+    pub l2_weights: Aligned<[[[f32; L3_SIZE]; L2_SIZE]; OUTPUT_BUCKETS]>,
+    pub l2_biases: Aligned<[[f32; L3_SIZE]; OUTPUT_BUCKETS]>,
+    pub l3_weights: Aligned<[[f32; L3_SIZE]; OUTPUT_BUCKETS]>,
+    pub l3_biases: Aligned<[f32; OUTPUT_BUCKETS]>,
 }
 
-static PARAMETERS: Parameters = unsafe { std::mem::transmute(*include_bytes!(env!("MODEL"))) };
+use crate::numa::{NumaReplicator, NumaValue};
+use once_cell::sync::OnceCell;
+unsafe impl NumaValue for Parameters {}
+
+fn load_parameters() -> Parameters {
+    unsafe { std::mem::transmute(*include_bytes!(env!("MODEL"))) }
+}
+
+static NUMA_PARAMETERS: OnceCell<NumaReplicator<Parameters>> = OnceCell::new();
+
+pub fn init_numa_parameters() {
+    NUMA_PARAMETERS.get_or_init(|| unsafe { NumaReplicator::new(load_parameters) });
+}
+
+pub fn get_numa_parameters() -> &'static Parameters {
+    unsafe { NUMA_PARAMETERS.get().expect("NUMA_PARAMETERS not initialized").get() }
+}
 
 #[repr(align(64))]
 #[derive(Clone)]
-struct Aligned<T> {
-    data: T,
+pub struct Aligned<T> {
+    pub data: T,
 }
 
 impl<T> Aligned<T> {

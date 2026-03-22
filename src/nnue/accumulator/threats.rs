@@ -1,4 +1,4 @@
-use super::{Aligned, L1_SIZE, PARAMETERS, simd};
+use super::{Aligned, L1_SIZE, Parameters, simd};
 use crate::{
     board::Board,
     lookup::attacks,
@@ -70,7 +70,7 @@ impl ThreatAccumulator {
         }
     }
 
-    pub fn refresh(&mut self, board: &Board, pov: Color) {
+    pub fn refresh(&mut self, board: &Board, pov: Color, parameters: &Parameters) {
         let king = board.king_square(pov);
 
         let mut adds = ArrayVec::<usize, 8196>::new();
@@ -96,38 +96,28 @@ impl ThreatAccumulator {
         unsafe {
             for offset in (0..L1_SIZE).step_by(REGISTERS * simd::I16_LANES) {
                 let output = self.values[pov].as_mut_ptr().add(offset);
-
                 let mut registers: [_; REGISTERS] = std::mem::zeroed();
-
                 let mut add_idx = 0;
-
                 while add_idx + 1 < adds.len() {
                     let add1 = adds[add_idx];
                     let add2 = adds[add_idx + 1];
-
-                    let vadd1 = PARAMETERS.ft_threat_weights[add1].as_ptr().add(offset);
-                    let vadd2 = PARAMETERS.ft_threat_weights[add2].as_ptr().add(offset);
-
+                    let vadd1 = parameters.ft_threat_weights[add1].as_ptr().add(offset);
+                    let vadd2 = parameters.ft_threat_weights[add2].as_ptr().add(offset);
                     for (i, register) in registers.iter_mut().enumerate() {
                         let add1_weights = simd::convert_i8_i16(*vadd1.add(i * simd::I16_LANES).cast());
                         let add2_weights = simd::convert_i8_i16(*vadd2.add(i * simd::I16_LANES).cast());
                         *register = simd::add_i16(simd::add_i16(*register, add1_weights), add2_weights);
                     }
-
                     add_idx += 2;
                 }
-
                 while add_idx < adds.len() {
-                    let vadd = PARAMETERS.ft_threat_weights[adds[add_idx]].as_ptr().add(offset);
-
+                    let vadd = parameters.ft_threat_weights[adds[add_idx]].as_ptr().add(offset);
                     for (i, register) in registers.iter_mut().enumerate() {
                         let add_weights = simd::convert_i8_i16(*vadd.add(i * simd::I16_LANES).cast());
                         *register = simd::add_i16(*register, add_weights);
                     }
-
                     add_idx += 1;
                 }
-
                 for (i, register) in registers.iter().enumerate() {
                     *output.add(i * simd::I16_LANES).cast() = *register;
                 }
@@ -137,7 +127,7 @@ impl ThreatAccumulator {
         self.accurate[pov] = true;
     }
 
-    pub unsafe fn update(&mut self, prev: &Self, king: Square, pov: Color) {
+    pub unsafe fn update(&mut self, prev: &Self, king: Square, pov: Color, parameters: &Parameters) {
         let mut adds = ArrayVec::<usize, 256>::new();
         let mut subs = ArrayVec::<usize, 256>::new();
 
@@ -163,53 +153,40 @@ impl ThreatAccumulator {
         for offset in (0..L1_SIZE).step_by(REGISTERS * simd::I16_LANES) {
             let input = prev.values[pov].as_ptr().add(offset);
             let output = self.values[pov].as_mut_ptr().add(offset);
-
             for (i, register) in registers.iter_mut().enumerate() {
                 *register = *input.add(i * simd::I16_LANES).cast();
             }
-
             let mut add_idx = 0;
             let mut sub_idx = 0;
-
             while add_idx < adds.len() && sub_idx < subs.len() {
                 let add = adds[add_idx];
                 let sub = subs[sub_idx];
-
-                let vadd = PARAMETERS.ft_threat_weights[add].as_ptr().add(offset);
-                let vsub = PARAMETERS.ft_threat_weights[sub].as_ptr().add(offset);
-
+                let vadd = parameters.ft_threat_weights[add].as_ptr().add(offset);
+                let vsub = parameters.ft_threat_weights[sub].as_ptr().add(offset);
                 for (i, register) in registers.iter_mut().enumerate() {
                     let add_weights = simd::convert_i8_i16(*vadd.add(i * simd::I16_LANES).cast());
                     let sub_weights = simd::convert_i8_i16(*vsub.add(i * simd::I16_LANES).cast());
                     *register = simd::sub_i16(simd::add_i16(*register, add_weights), sub_weights);
                 }
-
                 add_idx += 1;
                 sub_idx += 1;
             }
-
             while add_idx < adds.len() {
-                let vadd = PARAMETERS.ft_threat_weights[adds[add_idx]].as_ptr().add(offset);
-
+                let vadd = parameters.ft_threat_weights[adds[add_idx]].as_ptr().add(offset);
                 for (i, register) in registers.iter_mut().enumerate() {
                     let add_weights = simd::convert_i8_i16(*vadd.add(i * simd::I16_LANES).cast());
                     *register = simd::add_i16(*register, add_weights);
                 }
-
                 add_idx += 1;
             }
-
             while sub_idx < subs.len() {
-                let vsub = PARAMETERS.ft_threat_weights[subs[sub_idx]].as_ptr().add(offset);
-
+                let vsub = parameters.ft_threat_weights[subs[sub_idx]].as_ptr().add(offset);
                 for (i, register) in registers.iter_mut().enumerate() {
                     let sub_weights = simd::convert_i8_i16(*vsub.add(i * simd::I16_LANES).cast());
                     *register = simd::sub_i16(*register, sub_weights);
                 }
-
                 sub_idx += 1;
             }
-
             for (i, register) in registers.iter().enumerate() {
                 *output.add(i * simd::I16_LANES).cast() = *register;
             }

@@ -1,0 +1,68 @@
+diff --git a/src/transposition.rs b/src/transposition.rs
+index 0f2c4496..671e7875 100644
+--- a/src/transposition.rs
++++ b/src/transposition.rs
+@@ -151,7 +151,7 @@ impl TranspositionTable {
+         let key = verification_key(hash);
+ 
+         for entry in &cluster.entries {
+-            if key == entry.key && entry.depth != TtDepth::NONE as i8 {
++            if key == entry.key {
+                 let hit = Entry {
+                     depth: entry.depth as i32,
+                     score: score_from_tt(entry.score as i32, ply, halfmove_clock),
+@@ -160,11 +160,9 @@ impl TranspositionTable {
+                     tt_pv: entry.flags.tt_pv(),
+                     mv: entry.mv,
+                 };
+-
+                 return Some(hit);
+             }
+         }
+-
+         None
+     }
+ 
+@@ -219,11 +217,12 @@ impl TranspositionTable {
+             score += score.signum() * ply as i32;
+         }
+ 
+-        entry.key = key;
+         entry.depth = depth as i8;
+         entry.score = score as i16;
+         entry.raw_eval = raw_eval as i16;
+         entry.flags = Flags::new(bound, tt_pv, tt_age);
++        // Set key last to avoid races on partially written entries
++        entry.key = key;
+     }
+ 
+     pub fn prefetch(&self, hash: u64) {
+@@ -329,19 +328,26 @@ unsafe fn allocate(threads: usize, size_mb: usize) -> (*mut Cluster, usize) {
+     let len = size / CLUSTER_SIZE;
+ 
+     #[cfg(target_os = "linux")]
+-    let ptr = {
++    let ptr: *mut Cluster = {
+         let ptr = mmap(std::ptr::null_mut(), size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+         madvise(ptr, size, MADV_HUGEPAGE);
+         ptr.cast()
+     };
+ 
+     #[cfg(not(target_os = "linux"))]
+-    let ptr = {
++    let ptr: *mut Cluster = {
+         let layout = std::alloc::Layout::from_size_align(size, std::mem::align_of::<Cluster>()).unwrap();
+         std::alloc::alloc_zeroed(layout).cast()
+     };
+ 
+     unsafe { parallel_clear(threads, ptr, len) };
++    // Set all keys to 0 (sentinel for empty)
++    let slice = std::slice::from_raw_parts_mut(ptr, len);
++    for cluster in slice.iter_mut() {
++        for entry in &mut cluster.entries {
++            entry.key = 0;
++        }
++    }
+     (ptr, len)
+ }
+ 
