@@ -304,7 +304,12 @@ fn load_parameters() -> Parameters {
 static NUMA_PARAMETERS: OnceCell<NumaReplicator<Parameters>> = OnceCell::new();
 
 pub fn init_numa_parameters() {
-    NUMA_PARAMETERS.get_or_init(|| unsafe { NumaReplicator::new(load_parameters) });
+    let replicator = unsafe { NumaReplicator::new(load_parameters) };
+    // Print debug info for each NUMA node
+    for (node, ptr) in replicator.debug_ptrs() {
+        println!("[DEBUG] NUMA Parameters for node {} at address {:p}", node, ptr);
+    }
+    NUMA_PARAMETERS.get_or_init(|| replicator);
 }
 
 pub fn get_numa_parameters() -> &'static Parameters {

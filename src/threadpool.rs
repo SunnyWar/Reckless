@@ -235,9 +235,20 @@ fn make_worker_thread(id: Option<usize>) -> WorkerThread {
                 let mut cpuset = CpuSet::new();
                 cpuset.set(id);
                 let tid = current_thread_id();
-                if let Err(e) = topology.bind_thread_cpu(tid, &cpuset, CpuBindingFlags::empty()) {
-                    eprintln!("Failed to bind thread: {:?}", e);
+                match topology.bind_thread_cpu(tid, &cpuset, CpuBindingFlags::empty()) {
+                    Ok(_) => {
+                        let rust_tid = std::thread::current().id();
+                        println!(
+                            "[DEBUG] Worker index {} (Rust thread id {:?}) successfully bound to core {}",
+                            id, rust_tid, id
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to bind thread: {:?}", e);
+                    }
                 }
+            } else {
+                eprintln!("[DEBUG] Could not initialize hwlocality topology for thread {}", id);
             }
         }
 

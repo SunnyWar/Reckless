@@ -1,3 +1,16 @@
+impl<T: NumaValue> NumaReplicator<T> {
+    /// Returns a Vec of (NUMA node, pointer) pairs for debugging.
+    pub fn debug_ptrs(&self) -> Vec<(usize, *const T)> {
+        #[cfg(feature = "numa")]
+        {
+            mapping().keys().cloned().zip(self.allocated.iter().map(|&ptr| ptr as *const T)).collect()
+        }
+        #[cfg(not(feature = "numa"))]
+        {
+            vec![(0, self.allocated[0] as *const T)]
+        }
+    }
+}
 use hwlocality::Topology;
 use hwlocality::object::types::ObjectType;
 /// Returns a Vec of (NUMA node index, Vec<logical CPU IDs>), sorted by node and efficiency.
