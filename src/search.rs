@@ -52,6 +52,67 @@ impl NodeType for NonPV {
     const ROOT: bool = false;
 }
 
+#[derive(Clone, Copy)]
+pub struct AlphaBetaWindow {
+    alpha: i32,
+    beta: i32,
+}
+
+impl AlphaBetaWindow {
+    fn new(alpha: i32, beta: i32) -> Self {
+        debug_assert!(alpha < beta, "Alpha ({alpha}) must be less than Beta ({beta})");
+        Self { alpha, beta }
+    }
+
+    pub fn update(&mut self, new_alpha: i32, new_beta: i32) {
+        debug_assert!(new_alpha < new_beta, "Collapse failed: alpha {} >= beta {}", new_alpha, new_beta);
+        self.alpha = new_alpha;
+        self.beta = new_beta;
+    }
+
+    pub fn delta(&self) -> i32 {
+        self.beta - self.alpha
+    }
+
+    pub fn aspiration(center: i32, delta: i32) -> Self {
+        // Check the input delta first
+        debug_assert!(delta > 0, "Aspiration delta must be positive");
+
+        let alpha = (center - delta).clamp(-Score::INFINITE, Score::INFINITE);
+        let beta = (center + delta).clamp(-Score::INFINITE, Score::INFINITE);
+        let alpha = if alpha == beta { alpha - 1 } else { alpha };
+
+        Self::new(alpha, beta)
+    }
+
+    pub fn raise_alpha(&mut self, new_alpha: i32) {
+        debug_assert!(
+            new_alpha < self.beta,
+            "Cannot raise alpha to {} as it is not less than beta {}",
+            new_alpha,
+            self.beta
+        );
+        self.alpha = new_alpha;
+    }
+
+    pub fn set_alpha(&mut self, new_alpha: i32) {
+        debug_assert!(
+            new_alpha < self.beta,
+            "Cannot set alpha to {} as it is not less than beta {}",
+            new_alpha,
+            self.beta
+        );
+        self.alpha = new_alpha;
+    }
+
+    pub fn alpha(&self) -> i32 {
+        self.alpha
+    }
+    pub fn beta(&self) -> i32 {
+        self.beta
+    }
+}
+
 pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
     td.completed_depth = 0;
 
@@ -119,8 +180,7 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
             // Aspiration Windows
             delta += average[td.pv_index] * average[td.pv_index] / 23660;
 
-            let mut alpha = (average[td.pv_index] - delta).max(-Score::INFINITE);
-            let mut beta = (average[td.pv_index] + delta).min(Score::INFINITE);
+            let mut window = AlphaBetaWindow::aspiration(average[td.pv_index], delta);
 
             let best_avg = ((td.shared.best_stats[td.pv_index].load(Ordering::Acquire) & 0xffff) as i32 - 32768
                 + average[td.pv_index])
@@ -130,10 +190,10 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
 
             loop {
                 td.stack = Stack::default();
-                td.root_delta = beta - alpha;
+                td.root_delta = window.delta();
 
                 // Root Search
-                let score = search::<Root>(td, alpha, beta, (depth - reduction).max(1), false, 0);
+                let score = search::<Root>(td, window, (depth - reduction).max(1), false, 0);
 
                 td.root_moves[td.pv_index..td.pv_end].sort_by_key(|rm| std::cmp::Reverse(rm.score));
 
@@ -141,16 +201,21 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
                     break;
                 }
 
+                // In your aspiration loop:
                 match score {
-                    s if s <= alpha => {
-                        beta = (3 * alpha + beta) / 4;
-                        alpha = (score - delta).max(-Score::INFINITE);
+                    s if s <= window.alpha() => {
+                        let new_beta = (3 * window.alpha() + window.beta()) / 4;
+                        let new_alpha = (score - delta).max(-Score::INFINITE);
+                        window.update(new_alpha, new_beta);
+
                         reduction = 0;
                         delta += 27 * delta / 128;
                     }
-                    s if s >= beta => {
-                        alpha = (beta - delta).max(alpha);
-                        beta = (score + delta).min(Score::INFINITE);
+                    s if s >= window.beta() => {
+                        let new_alpha = (window.beta() - delta).max(window.alpha());
+                        let new_beta = (score + delta).min(Score::INFINITE);
+                        window.update(new_alpha, new_beta);
+
                         reduction += 1;
                         delta += 63 * delta / 128;
                     }
@@ -263,11 +328,10 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
 }
 
 fn search<NODE: NodeType>(
-    td: &mut ThreadData, mut alpha: i32, mut beta: i32, depth: i32, cut_node: bool, ply: isize,
+    td: &mut ThreadData, mut window: AlphaBetaWindow, depth: i32, cut_node: bool, ply: isize,
 ) -> i32 {
     debug_assert!(ply as usize <= MAX_PLY);
-    debug_assert!(-Score::INFINITE <= alpha && alpha < beta && beta <= Score::INFINITE);
-    debug_assert!(NODE::PV || alpha == beta - 1);
+    debug_assert!(NODE::PV || window.alpha == window.beta - 1);
 
     let stm = td.board.side_to_move();
     let in_check = td.board.in_check();
@@ -283,15 +347,15 @@ fn search<NODE: NodeType>(
 
     // Qsearch Dive
     if depth <= 0 {
-        return qsearch::<NODE>(td, alpha, beta, ply);
+        return qsearch::<NODE>(td, window, ply);
     }
 
     let draw_score = draw(td);
-    if !NODE::ROOT && alpha < draw_score && td.board.upcoming_repetition(ply as usize) {
-        alpha = draw_score;
-        if alpha >= beta {
-            return alpha;
+    if !NODE::ROOT && window.alpha < draw_score && td.board.upcoming_repetition(ply as usize) {
+        if draw_score >= window.beta {
+            return draw_score;
         }
+        window.set_alpha(draw_score);
     }
 
     if NODE::PV {
@@ -313,12 +377,14 @@ fn search<NODE: NodeType>(
         }
 
         // Mate Distance Pruning (MDP)
-        alpha = alpha.max(mated_in(ply));
-        beta = beta.min(mate_in(ply + 1));
+        let alpha_collapse = window.alpha.max(mated_in(ply));
+        let beta_collapse = window.beta.min(mate_in(ply + 1));
 
-        if alpha >= beta {
-            return alpha;
+        if alpha_collapse >= beta_collapse {
+            return alpha_collapse;
         }
+
+        window.update(alpha_collapse, beta_collapse);
     }
 
     #[cfg(feature = "syzygy")]
@@ -347,15 +413,15 @@ fn search<NODE: NodeType>(
 
         if !NODE::PV
             && !excluded
-            && tt_depth > depth - (tt_score < beta) as i32
+            && tt_depth > depth - (tt_score < window.beta) as i32
             && is_valid(tt_score)
             && match tt_bound {
-                Bound::Upper => tt_score <= alpha && (!cut_node || depth > 5),
-                Bound::Lower => tt_score >= beta && (cut_node || depth > 5),
+                Bound::Upper => tt_score <= window.alpha && (!cut_node || depth > 5),
+                Bound::Lower => tt_score >= window.beta && (cut_node || depth > 5),
                 _ => true,
             }
         {
-            if tt_move.is_quiet() && tt_score >= beta && td.stack[ply - 1].move_count < 4 {
+            if tt_move.is_quiet() && tt_score >= window.beta && td.stack[ply - 1].move_count < 4 {
                 let quiet_bonus = (185 * depth - 81).min(1806);
                 let cont_bonus = (108 * depth - 56).min(1365);
 
@@ -388,8 +454,8 @@ fn search<NODE: NodeType>(
         };
 
         if bound == Bound::Exact
-            || (bound == Bound::Lower && score >= beta)
-            || (bound == Bound::Upper && score <= alpha)
+            || (bound == Bound::Lower && score >= window.beta)
+            || (bound == Bound::Upper && score <= window.alpha)
         {
             let depth = (depth + 6).min(MAX_PLY as i32 - 1);
             td.shared.tt.write(hash, depth, Score::NONE, score, bound, Move::NULL, ply, tt_pv, false);
@@ -399,7 +465,7 @@ fn search<NODE: NodeType>(
         if NODE::PV {
             if bound == Bound::Lower {
                 best_score = score;
-                alpha = alpha.max(best_score);
+                window.raise_alpha(best_score);
             } else {
                 max_score = score;
             }
@@ -449,8 +515,8 @@ fn search<NODE: NodeType>(
         && !is_decisive(tt_score)
         && is_valid(tt_score)
         && match tt_bound {
-            Bound::Upper => tt_score <= alpha,
-            Bound::Lower => tt_score >= beta,
+            Bound::Upper => tt_score <= window.alpha,
+            Bound::Lower => tt_score >= window.beta,
             _ => true,
         }
     {
@@ -510,27 +576,27 @@ fn search<NODE: NodeType>(
     // Razoring
     if !NODE::PV
         && !in_check
-        && estimated_score < alpha - 299 - 252 * depth * depth
-        && alpha < 2048
+        && estimated_score < window.alpha - 299 - 252 * depth * depth
+        && window.alpha < 2048
         && !tt_move.is_quiet()
     {
-        return qsearch::<NonPV>(td, alpha, beta, ply);
+        return qsearch::<NonPV>(td, window, ply);
     }
 
     // Reverse Futility Pruning (RFP)
     if !tt_pv
         && !in_check
         && !excluded
-        && estimated_score >= beta
+        && estimated_score >= window.beta
         && estimated_score
-            >= beta + 1125 * depth * depth / 128 + 26 * depth - (77 * improving as i32)
+            >= window.beta + 1125 * depth * depth / 128 + 26 * depth - (77 * improving as i32)
                 + 519 * correction_value.abs() / 1024
                 - 64 * (td.board.all_threats() & td.board.colors(stm)).is_empty() as i32
                 + 32
-        && !is_loss(beta)
+        && !is_loss(window.beta)
         && !is_win(estimated_score)
     {
-        return beta + (estimated_score - beta) / 3;
+        return window.beta + (estimated_score - window.beta) / 3;
     }
 
     // Null Move Pruning (NMP)
@@ -538,13 +604,13 @@ fn search<NODE: NodeType>(
         && !in_check
         && !excluded
         && !potential_singularity
-        && estimated_score >= beta
+        && estimated_score >= window.beta
         && estimated_score
-            >= beta - 9 * depth + 126 * tt_pv as i32 - 128 * improvement / 1024 + 286
+            >= window.beta - 9 * depth + 126 * tt_pv as i32 - 128 * improvement / 1024 + 286
                 - 20 * (td.stack[ply + 1].cutoff_count < 2) as i32
         && ply as i32 >= td.nmp_min_ply
         && td.board.has_non_pawns()
-        && !is_loss(beta)
+        && !is_loss(window.beta)
         && !(tt_bound == Bound::Lower
             && tt_move.is_present()
             && tt_move.is_capture()
@@ -552,7 +618,7 @@ fn search<NODE: NodeType>(
     {
         debug_assert_ne!(td.stack[ply - 1].mv, Move::NULL);
 
-        let r = (5154 + 271 * depth + 535 * (estimated_score - beta).clamp(0, 1073) / 128) / 1024;
+        let r = (5154 + 271 * depth + 535 * (estimated_score - window.beta).clamp(0, 1073) / 128) / 1024;
 
         td.stack[ply].conthist = td.stack.sentinel().conthist;
         td.stack[ply].contcorrhist = td.stack.sentinel().contcorrhist;
@@ -562,7 +628,8 @@ fn search<NODE: NodeType>(
         td.board.make_null_move();
         td.shared.tt.prefetch(td.board.hash());
 
-        let score = -search::<NonPV>(td, -beta, -beta + 1, depth - r, false, ply + 1);
+        let nmp_window = AlphaBetaWindow { alpha: -window.beta, beta: -window.beta + 1 };
+        let score = -search::<NonPV>(td, nmp_window, depth - r, false, ply + 1);
 
         td.board.undo_null_move();
 
@@ -570,31 +637,32 @@ fn search<NODE: NodeType>(
             return Score::ZERO;
         }
 
-        if score >= beta && !is_win(score) {
+        if score >= window.beta && !is_win(score) {
             if td.nmp_min_ply > 0 || depth < 16 {
                 return score;
             }
 
             td.nmp_min_ply = ply as i32 + 3 * (depth - r) / 4;
-            let verified_score = search::<NonPV>(td, beta - 1, beta, depth - r, false, ply);
+            let verify_window = AlphaBetaWindow { alpha: window.beta - 1, beta: window.beta };
+            let verified_score = search::<NonPV>(td, verify_window, depth - r, false, ply);
             td.nmp_min_ply = 0;
 
             if td.shared.status.get() == Status::STOPPED {
                 return Score::ZERO;
             }
 
-            if verified_score >= beta {
+            if verified_score >= window.beta {
                 return score;
             }
         }
     }
 
     // ProbCut
-    let mut probcut_beta = beta + 269 - 72 * improving as i32;
+    let mut probcut_beta = window.beta + 269 - 72 * improving as i32;
 
     if cut_node
-        && !is_win(beta)
-        && if is_valid(tt_score) { tt_score >= probcut_beta && !is_decisive(tt_score) } else { eval >= beta }
+        && !is_win(window.beta)
+        && if is_valid(tt_score) { tt_score >= probcut_beta && !is_decisive(tt_score) } else { eval >= window.beta }
         && !tt_move.is_quiet()
     {
         let mut move_picker = MovePicker::new_probcut(probcut_beta - eval);
@@ -610,7 +678,8 @@ fn search<NODE: NodeType>(
 
             make_move(td, ply, mv);
 
-            let mut score = -qsearch::<NonPV>(td, -probcut_beta, -probcut_beta + 1, ply + 1);
+            let mut score =
+                -qsearch::<NonPV>(td, AlphaBetaWindow { alpha: -probcut_beta, beta: -probcut_beta + 1 }, ply + 1);
 
             let base_depth = (depth - 4).max(0);
             let mut probcut_depth = (base_depth - (score - probcut_beta) / 295).clamp(0, base_depth);
@@ -618,11 +687,13 @@ fn search<NODE: NodeType>(
             if score >= probcut_beta && probcut_depth > 0 {
                 let adjusted_beta = (probcut_beta + 282 * (base_depth - probcut_depth)).min(Score::INFINITE);
 
-                score = -search::<NonPV>(td, -adjusted_beta, -adjusted_beta + 1, probcut_depth, false, ply + 1);
+                let adjusted_window = AlphaBetaWindow { alpha: -adjusted_beta, beta: -adjusted_beta + 1 };
+                score = -search::<NonPV>(td, adjusted_window, probcut_depth, false, ply + 1);
 
                 if score < adjusted_beta && probcut_beta < adjusted_beta {
                     probcut_depth = base_depth;
-                    score = -search::<NonPV>(td, -probcut_beta, -probcut_beta + 1, probcut_depth, false, ply + 1);
+                    let retry_window = AlphaBetaWindow { alpha: -probcut_beta, beta: -probcut_beta + 1 };
+                    score = -search::<NonPV>(td, retry_window, probcut_depth, false, ply + 1);
                 } else {
                     probcut_beta = adjusted_beta;
                 }
@@ -638,7 +709,7 @@ fn search<NODE: NodeType>(
                 td.shared.tt.write(hash, probcut_depth + 1, raw_eval, score, Bound::Lower, mv, ply, tt_pv, false);
 
                 if !is_decisive(score) {
-                    return (3 * score + beta) / 4;
+                    return (3 * score + window.beta) / 4;
                 } else {
                     return score;
                 }
@@ -658,7 +729,8 @@ fn search<NODE: NodeType>(
         let singular_depth = (depth - 1) / 2;
 
         td.stack[ply].excluded = tt_move;
-        let score = search::<NonPV>(td, singular_beta - 1, singular_beta, singular_depth, cut_node, ply);
+        let singular_window = AlphaBetaWindow { alpha: singular_beta - 1, beta: singular_beta };
+        let score = search::<NonPV>(td, singular_window, singular_depth, cut_node, ply);
         td.stack[ply].excluded = Move::NULL;
 
         if td.shared.status.get() == Status::STOPPED {
@@ -676,11 +748,11 @@ fn search<NODE: NodeType>(
             extension += (score < singular_beta - triple_margin) as i32;
         }
         // Multi-Cut
-        else if score >= beta && !is_decisive(score) {
-            return (2 * score + beta) / 3;
+        else if score >= window.beta && !is_decisive(score) {
+            return (2 * score + window.beta) / 3;
         }
         // Negative Extensions
-        else if tt_score >= beta {
+        else if tt_score >= window.beta {
             extension = -2;
         } else if cut_node {
             extension = -2;
@@ -733,9 +805,9 @@ fn search<NODE: NodeType>(
             }
 
             // Futility Pruning (FP)
-            let futility_value = eval + 88 * depth + 63 * history / 1024 + 88 * (eval >= beta) as i32 - 114;
+            let futility_value = eval + 88 * depth + 63 * history / 1024 + 88 * (eval >= window.beta) as i32 - 114;
 
-            if !in_check && is_quiet && depth < 14 && futility_value <= alpha && !td.board.is_direct_check(mv) {
+            if !in_check && is_quiet && depth < 14 && futility_value <= window.alpha && !td.board.is_direct_check(mv) {
                 if !is_decisive(best_score) && best_score < futility_value {
                     best_score = futility_value;
                 }
@@ -749,7 +821,7 @@ fn search<NODE: NodeType>(
             if !in_check
                 && depth < 12
                 && move_picker.stage() == Stage::BadNoisy
-                && noisy_futility_value <= alpha
+                && noisy_futility_value <= window.alpha
                 && !td.board.is_direct_check(mv)
             {
                 if !is_decisive(best_score) && best_score < noisy_futility_value {
@@ -786,7 +858,7 @@ fn search<NODE: NodeType>(
             reduction -= 3183 * correction_value.abs() / 1024;
             reduction += 1300 * alpha_raises;
 
-            reduction += 600 * (is_valid(tt_score) && tt_score <= alpha) as i32;
+            reduction += 600 * (is_valid(tt_score) && tt_score <= window.alpha) as i32;
             reduction += 300 * (is_valid(tt_score) && tt_depth < depth) as i32;
 
             if is_quiet {
@@ -798,12 +870,12 @@ fn search<NODE: NodeType>(
             }
 
             if NODE::PV {
-                reduction -= 411 + 421 * (beta - alpha) / td.root_delta;
+                reduction -= 411 + 421 * (window.beta - window.alpha) / td.root_delta;
             }
 
             if tt_pv {
                 reduction -= 371;
-                reduction -= 656 * (is_valid(tt_score) && tt_score > alpha) as i32;
+                reduction -= 656 * (is_valid(tt_score) && tt_score > window.alpha) as i32;
                 reduction -= 824 * (is_valid(tt_score) && tt_depth >= depth) as i32;
             }
 
@@ -832,11 +904,12 @@ fn search<NODE: NodeType>(
                 (new_depth - reduction / 1024).clamp(1, new_depth + (move_count <= 3) as i32 + 1) + 2 * NODE::PV as i32;
 
             td.stack[ply].reduction = reduction;
-            score = -search::<NonPV>(td, -alpha - 1, -alpha, reduced_depth, true, ply + 1);
+            let lmr_window = AlphaBetaWindow { alpha: -window.alpha - 1, beta: -window.alpha };
+            score = -search::<NonPV>(td, lmr_window, reduced_depth, true, ply + 1);
             td.stack[ply].reduction = 0;
             current_search_count += 1;
 
-            if score > alpha {
+            if score > window.alpha {
                 if !NODE::ROOT {
                     new_depth += (score > best_score + 60) as i32;
                     new_depth += (score > best_score + 768) as i32;
@@ -844,7 +917,8 @@ fn search<NODE: NodeType>(
                 }
 
                 if new_depth > reduced_depth {
-                    score = -search::<NonPV>(td, -alpha - 1, -alpha, new_depth, !cut_node, ply + 1);
+                    let retry_window = AlphaBetaWindow { alpha: -window.alpha - 1, beta: -window.alpha };
+                    score = -search::<NonPV>(td, retry_window, new_depth, !cut_node, ply + 1);
                     current_search_count += 1;
                 }
             }
@@ -892,17 +966,18 @@ fn search<NODE: NodeType>(
 
             let reduced_depth = new_depth - (reduction >= 3072) as i32 - (reduction >= 5687 && new_depth >= 3) as i32;
 
-            score = -search::<NonPV>(td, -alpha - 1, -alpha, reduced_depth, !cut_node, ply + 1);
+            let fds_window = AlphaBetaWindow { alpha: -window.alpha - 1, beta: -window.alpha };
+            score = -search::<NonPV>(td, fds_window, reduced_depth, !cut_node, ply + 1);
             current_search_count += 1;
         }
 
         // Principal Variation Search (PVS)
-        if NODE::PV && (move_count == 1 || score > alpha) {
+        if NODE::PV && (move_count == 1 || score > window.alpha) {
             if mv == tt_move && tt_depth > 1 && td.root_depth > 8 {
                 new_depth = new_depth.max(1);
             }
-
-            score = -search::<PV>(td, -beta, -alpha, new_depth, false, ply + 1);
+            let pvs_window = AlphaBetaWindow { alpha: -window.beta, beta: -window.alpha };
+            score = -search::<PV>(td, pvs_window, new_depth, false, ply + 1);
             current_search_count += 1;
         }
 
@@ -918,14 +993,14 @@ fn search<NODE: NodeType>(
 
             root_move.nodes += current_nodes - initial_nodes;
 
-            if move_count == 1 || score > alpha {
+            if move_count == 1 || score > window.alpha {
                 match score {
-                    v if v <= alpha => {
-                        root_move.display_score = alpha;
+                    v if v <= window.alpha => {
+                        root_move.display_score = window.alpha;
                         root_move.upperbound = true;
                     }
-                    v if v >= beta => {
-                        root_move.display_score = beta;
+                    v if v >= window.beta => {
+                        root_move.display_score = window.beta;
                         root_move.lowerbound = true;
                     }
                     _ => {
@@ -950,7 +1025,7 @@ fn search<NODE: NodeType>(
         if score > best_score {
             best_score = score;
 
-            if score > alpha {
+            if score > window.alpha {
                 bound = Bound::Exact;
                 best_move = mv;
 
@@ -958,13 +1033,13 @@ fn search<NODE: NodeType>(
                     td.pv_table.update(ply as usize, mv);
                 }
 
-                if score >= beta {
+                if score >= window.beta {
                     bound = Bound::Lower;
                     td.stack[ply].cutoff_count += 1;
                     break;
                 }
 
-                alpha = score;
+                window.set_alpha(score);
 
                 if !is_decisive(score) {
                     alpha_raises += 1;
@@ -1027,7 +1102,7 @@ fn search<NODE: NodeType>(
             update_continuation_histories(td, ply - 1, td.stack[ply - 1].piece, td.stack[ply - 1].mv.to(), -malus);
         }
 
-        if current_search_count > 1 && best_move.is_quiet() && best_score >= beta {
+        if current_search_count > 1 && best_move.is_quiet() && best_score >= window.beta {
             let bonus = (201 * depth - 86).min(1634);
             update_continuation_histories(td, ply, td.stack[ply].piece, best_move.to(), bonus);
         }
@@ -1068,9 +1143,9 @@ fn search<NODE: NodeType>(
 
     tt_pv |= !NODE::ROOT && bound == Bound::Upper && move_count > 2 && td.stack[ply - 1].tt_pv;
 
-    if !NODE::ROOT && best_score >= beta && !is_decisive(best_score) && !is_decisive(alpha) {
+    if !NODE::ROOT && best_score >= window.beta && !is_decisive(best_score) && !is_decisive(window.alpha) {
         let weight = depth.min(8);
-        best_score = (best_score * weight + beta) / (weight + 1);
+        best_score = (best_score * weight + window.beta) / (weight + 1);
     }
 
     #[cfg(feature = "syzygy")]
@@ -1090,24 +1165,23 @@ fn search<NODE: NodeType>(
         update_correction_histories(td, depth, best_score - eval, ply);
     }
 
-    debug_assert!(alpha < beta);
     debug_assert!(-Score::INFINITE < best_score && best_score < Score::INFINITE);
 
     best_score
 }
 
-fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: isize) -> i32 {
+fn qsearch<NODE: NodeType>(td: &mut ThreadData, window: AlphaBetaWindow, ply: isize) -> i32 {
     debug_assert!(!NODE::ROOT);
     debug_assert!(ply as usize <= MAX_PLY);
-    debug_assert!(-Score::INFINITE <= alpha && alpha < beta && beta <= Score::INFINITE);
-    debug_assert!(NODE::PV || alpha == beta - 1);
+    debug_assert!(NODE::PV || window.alpha == window.beta - 1);
 
+    let mut window = window;
     let draw_score = draw(td);
-    if alpha < draw_score && td.board.upcoming_repetition(ply as usize) {
-        alpha = draw_score;
-        if alpha >= beta {
-            return alpha;
+    if window.alpha < draw_score && td.board.upcoming_repetition(ply as usize) {
+        if draw_score >= window.beta {
+            return draw_score;
         }
+        window.set_alpha(draw_score);
     }
 
     let stm = td.board.side_to_move();
@@ -1149,8 +1223,8 @@ fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: 
         if is_valid(tt_score)
             && (!NODE::PV || !is_decisive(tt_score))
             && match tt_bound {
-                Bound::Upper => tt_score <= alpha,
-                Bound::Lower => tt_score >= beta,
+                Bound::Upper => tt_score <= window.alpha,
+                Bound::Lower => tt_score >= window.beta,
                 _ => true,
             }
         {
@@ -1188,9 +1262,9 @@ fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: 
     }
 
     // Stand Pat
-    if best_score >= beta {
-        if !is_decisive(best_score) && !is_decisive(beta) {
-            best_score = beta + (best_score - beta) / 3;
+    if best_score >= window.beta {
+        if !is_decisive(best_score) && !is_decisive(window.beta) {
+            best_score = window.beta + (best_score - window.beta) / 3;
         }
 
         if entry.is_none() {
@@ -1200,8 +1274,8 @@ fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: 
         return best_score;
     }
 
-    if best_score > alpha {
-        alpha = best_score;
+    if best_score > window.alpha {
+        window.set_alpha(best_score);
     }
 
     let mut best_move = Move::NULL;
@@ -1222,14 +1296,15 @@ fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: 
             }
 
             // Static Exchange Evaluation Pruning (SEE Pruning)
-            if is_valid(eval) && !td.board.see(mv, (alpha - eval) / 8 - 100) {
+            if is_valid(eval) && !td.board.see(mv, (window.alpha - eval) / 8 - 100) {
                 continue;
             }
         }
 
         make_move(td, ply, mv);
 
-        let score = -qsearch::<NODE>(td, -beta, -alpha, ply + 1);
+        let child_window = AlphaBetaWindow { alpha: -window.beta, beta: -window.alpha };
+        let score = -qsearch::<NODE>(td, child_window, ply + 1);
 
         undo_move(td, mv);
 
@@ -1240,14 +1315,14 @@ fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: 
         if score > best_score {
             best_score = score;
 
-            if score > alpha {
+            if score > window.alpha {
                 best_move = mv;
 
                 if NODE::PV {
                     td.pv_table.update(ply as usize, mv);
                 }
 
-                if score >= beta {
+                if score >= window.beta {
                     let bonus = if best_move.is_noisy() { 106 } else { 172 };
 
                     if best_move.is_noisy() {
@@ -1265,7 +1340,7 @@ fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: 
                     break;
                 }
 
-                alpha = score;
+                window.set_alpha(score);
             }
         }
     }
@@ -1274,15 +1349,15 @@ fn qsearch<NODE: NodeType>(td: &mut ThreadData, mut alpha: i32, beta: i32, ply: 
         return mated_in(ply);
     }
 
-    if best_score >= beta && !is_decisive(best_score) && !is_decisive(beta) {
-        best_score = (best_score + beta) / 2;
+    if best_score >= window.beta && !is_decisive(best_score) && !is_decisive(window.beta) {
+        best_score = (best_score + window.beta) / 2;
     }
 
-    let bound = if best_score >= beta { Bound::Lower } else { Bound::Upper };
+    let bound = if best_score >= window.beta { Bound::Lower } else { Bound::Upper };
 
     td.shared.tt.write(hash, TtDepth::SOME, raw_eval, best_score, bound, best_move, ply, tt_pv, false);
 
-    debug_assert!(alpha < beta);
+    debug_assert!(window.alpha < window.beta);
     debug_assert!(-Score::INFINITE < best_score && best_score < Score::INFINITE);
 
     best_score
