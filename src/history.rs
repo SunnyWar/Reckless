@@ -178,26 +178,16 @@ impl ContHistory for ContinuationCorrectionHistory {
     const MAX_HISTORY: i32 = Self::MAX_HISTORY;
 
     fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
-        let (in_check, is_capture, piece, square) = key.decode();
         unsafe {
-            self.entries
-                .as_ref()
-                .get_unchecked(in_check)
-                .get_unchecked(is_capture)
-                .get_unchecked(piece)
-                .get_unchecked(square)
+            &*(self.entries.as_ref() as *const ContinuationHistoryType as *const PieceToHistory<i16>)
+                .add(key.subtable_index as usize)
         }
     }
 
     fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
-        let (in_check, is_capture, piece, square) = key.decode();
         unsafe {
-            self.entries
-                .as_mut()
-                .get_unchecked_mut(in_check)
-                .get_unchecked_mut(is_capture)
-                .get_unchecked_mut(piece)
-                .get_unchecked_mut(square)
+            &mut *(self.entries.as_mut() as *mut ContinuationHistoryType as *mut PieceToHistory<i16>)
+                .add(key.subtable_index as usize)
         }
     }
 }
@@ -210,38 +200,20 @@ impl Default for ContinuationCorrectionHistory {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ContinuationKey {
-    in_check: u8,
-    is_capture: u8,
-    piece: u8,
-    square: u8,
     sentinel: bool,
+    subtable_index: u16,
 }
 
 impl ContinuationKey {
-    pub const SENTINEL: Self = Self {
-        in_check: 0,
-        is_capture: 0,
-        piece: 0,
-        square: 0,
-        sentinel: true,
-    };
+    pub const SENTINEL: Self = Self { sentinel: true, subtable_index: 0 };
 
     pub fn is_sentinel(self) -> bool {
         self.sentinel
     }
 
     pub const fn from_parts(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> Self {
-        Self {
-            in_check: in_check as u8,
-            is_capture: is_capture as u8,
-            piece: piece as u8,
-            square: square as u8,
-            sentinel: false,
-        }
-    }
-
-    fn decode(self) -> (usize, usize, usize, usize) {
-        (self.in_check as usize, self.is_capture as usize, self.piece as usize, self.square as usize)
+        let index = ((in_check as usize * 2 + is_capture as usize) * 13 + piece as usize) * 64 + square as usize;
+        Self { sentinel: false, subtable_index: index as u16 }
     }
 }
 
@@ -300,26 +272,16 @@ impl ContHistory for ContinuationHistory {
     const MAX_HISTORY: i32 = Self::MAX_HISTORY;
 
     fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
-        let (in_check, is_capture, piece, square) = key.decode();
         unsafe {
-            self.entries
-                .as_ref()
-                .get_unchecked(in_check)
-                .get_unchecked(is_capture)
-                .get_unchecked(piece)
-                .get_unchecked(square)
+            &*(self.entries.as_ref() as *const ContinuationHistoryType as *const PieceToHistory<i16>)
+                .add(key.subtable_index as usize)
         }
     }
 
     fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
-        let (in_check, is_capture, piece, square) = key.decode();
         unsafe {
-            self.entries
-                .as_mut()
-                .get_unchecked_mut(in_check)
-                .get_unchecked_mut(is_capture)
-                .get_unchecked_mut(piece)
-                .get_unchecked_mut(square)
+            &mut *(self.entries.as_mut() as *mut ContinuationHistoryType as *mut PieceToHistory<i16>)
+                .add(key.subtable_index as usize)
         }
     }
 }
