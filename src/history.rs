@@ -231,19 +231,17 @@ impl ContinuationKey {
         }
     }
 
-    const fn decode(self) -> (usize, usize, usize, usize) {
-        let mut index = self.offset / CONT_SUBTABLE_LEN;
+    fn decode(self) -> (usize, usize, usize, usize) {
+        let mut idx = self.offset / CONT_SUBTABLE_LEN;
 
-        let square = index % CONT_SQUARE_DIM;
-        index /= CONT_SQUARE_DIM;
+        let square = idx % CONT_SQUARE_DIM;
+        idx /= CONT_SQUARE_DIM;
 
-        let piece = index % CONT_PIECE_DIM;
-        index /= CONT_PIECE_DIM;
+        let piece = idx % CONT_PIECE_DIM;
+        idx /= CONT_PIECE_DIM;
 
-        let is_capture = index % CONT_CAPTURE_DIM;
-        index /= CONT_CAPTURE_DIM;
-
-        let in_check = index;
+        let is_capture = idx % CONT_CAPTURE_DIM;
+        let in_check = idx / CONT_CAPTURE_DIM;
 
         (in_check, is_capture, piece, square)
     }
@@ -262,29 +260,18 @@ trait ContHistory {
     fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16>;
 }
 
-fn continuation_history_get<T: ContHistory>(history: &T, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
-    unsafe {
-        *history
-            .history_entry(key)
-            .get_unchecked(sub_piece as usize)
-            .get_unchecked(sub_square as usize) as i32
-    }
+fn continuation_history_get<T: ContHistory>(
+    history: &T, key: ContinuationKey, sub_piece: Piece, sub_square: Square,
+) -> i32 {
+    unsafe { *history.history_entry(key).get_unchecked(sub_piece as usize).get_unchecked(sub_square as usize) as i32 }
 }
 
 fn continuation_history_update<T: ContHistory>(
-    history: &mut T,
-    key: ContinuationKey,
-    sub_piece: Piece,
-    sub_square: Square,
-    bonus: i32,
+    history: &mut T, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32,
 ) {
     let entry = unsafe {
-        history
-            .history_entry_mut(key)
-            .get_unchecked_mut(sub_piece as usize)
-            .get_unchecked_mut(sub_square as usize)
+        history.history_entry_mut(key).get_unchecked_mut(sub_piece as usize).get_unchecked_mut(sub_square as usize)
     };
-    let bonus = bonus.clamp(-T::MAX_HISTORY, T::MAX_HISTORY);
     *entry += (bonus - bonus.abs() * (*entry) as i32 / T::MAX_HISTORY) as i16;
 }
 
