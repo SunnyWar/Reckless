@@ -1,3 +1,4 @@
+use crate::stack::{InCheck, IsCapture};
 use std::sync::atomic::{AtomicI16, Ordering};
 
 use crate::{
@@ -196,14 +197,11 @@ impl ContinuationCorrectionHistory {
         }
     }
 
-    pub fn update(
-        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
-        bonus: i32,
-    ) {
+    pub fn update(&mut self, key: ContinuationKey, sub_key: ContinuationKey, bonus: i32) {
         let entry = unsafe {
-            self.history_entry_mut(in_check, capture, piece, to)
-                .get_unchecked_mut(sub_piece as usize)
-                .get_unchecked_mut(sub_to as usize)
+            self.history_entry_mut(key.in_check.as_bool(), key.is_capture.as_bool(), key.piece, key.square)
+                .get_unchecked_mut(sub_key.piece as usize)
+                .get_unchecked_mut(sub_key.square as usize)
         };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
@@ -212,6 +210,25 @@ impl ContinuationCorrectionHistory {
 impl Default for ContinuationCorrectionHistory {
     fn default() -> Self {
         Self { entries: zeroed_box() }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ContinuationKey {
+    pub in_check: InCheck,
+    pub is_capture: IsCapture,
+    pub piece: Piece,
+    pub square: Square,
+}
+
+impl Default for ContinuationKey {
+    fn default() -> Self {
+        Self {
+            in_check: InCheck::No,
+            is_capture: IsCapture::No,
+            piece: Piece::None,
+            square: Square::None,
+        }
     }
 }
 
@@ -254,14 +271,11 @@ impl ContinuationHistory {
         }
     }
 
-    pub fn update(
-        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
-        bonus: i32,
-    ) {
+    pub fn update(&mut self, key: ContinuationKey, sub_key: ContinuationKey, bonus: i32) {
         let entry = unsafe {
-            self.history_entry_mut(in_check, capture, piece, to)
-                .get_unchecked_mut(sub_piece as usize)
-                .get_unchecked_mut(sub_to as usize)
+            self.history_entry_mut(key.in_check.as_bool(), key.is_capture.as_bool(), key.piece, key.square)
+                .get_unchecked_mut(sub_key.piece as usize)
+                .get_unchecked_mut(sub_key.square as usize)
         };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }

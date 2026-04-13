@@ -196,12 +196,12 @@ impl ThreadData {
     }
 
     pub fn conthist(&self, ply: isize, index: isize, mv: Move) -> i32 {
-        let (in_check, capture, piece, to) = self.stack[ply - index].conthist;
+        let cont = self.stack[ply - index].conthist;
         self.continuation_history.get(
-            in_check.as_bool(),
-            capture.as_bool(),
-            piece,
-            to,
+            cont.in_check.as_bool(),
+            cont.is_capture.as_bool(),
+            cont.piece,
+            cont.square,
             self.board.piece_on(mv.from()),
             mv.to(),
         )

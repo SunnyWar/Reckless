@@ -1,4 +1,5 @@
 use crate::board::Board;
+use crate::history::ContinuationKey;
 use crate::stack::{InCheck, IsCapture};
 use std::sync::atomic::Ordering;
 
@@ -1070,17 +1071,14 @@ fn search<NODE: NodeType>(
             let entry = &td.stack[ply - 2];
             if entry.mv.is_present() {
                 let bonus = (159 * depth - 39).min(1160);
-                let (in_check, capture, prev_piece, prev_to) = entry.conthist;
-
-                td.continuation_history.update(
-                    in_check.as_bool(),
-                    capture.as_bool(),
-                    prev_piece,
-                    prev_to,
-                    td.stack[ply - 1].piece,
-                    prior_move.to(),
-                    bonus,
-                );
+                let cont = entry.conthist;
+                let sub = ContinuationKey {
+                    in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
+                    is_capture: if prior_move.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+                    piece: td.stack[ply - 1].piece,
+                    square: prior_move.to(),
+                };
+                td.continuation_history.update(cont, sub, bonus);
             }
         } else if prior_move.is_noisy() {
             let captured = td.board.captured_piece().unwrap_or_default().piece_type();
@@ -1328,24 +1326,23 @@ fn eval_correction(td: &ThreadData, ply: isize) -> i32 {
         + corrhist.non_pawn[Color::White].get(stm, td.board.non_pawn_key(Color::White))
         + corrhist.non_pawn[Color::Black].get(stm, td.board.non_pawn_key(Color::Black))
         + {
-            let (in_check, capture, piece, to) = td.stack[ply - 2].contcorrhist;
+            let cont = td.stack[ply - 2].contcorrhist;
             td.continuation_corrhist.get(
-                in_check.as_bool(),
-                capture.as_bool(),
-                piece,
-                to,
+                cont.in_check.as_bool(),
+                cont.is_capture.as_bool(),
+                cont.piece,
+                cont.square,
                 td.stack[ply - 1].piece,
                 td.stack[ply - 1].mv.to(),
             )
         }
         + {
-            let (in_check, capture, piece, to) = td.stack[ply - 4].contcorrhist;
-
+            let cont = td.stack[ply - 4].contcorrhist;
             td.continuation_corrhist.get(
-                in_check.as_bool(),
-                capture.as_bool(),
-                piece,
-                to,
+                cont.in_check.as_bool(),
+                cont.is_capture.as_bool(),
+                cont.piece,
+                cont.square,
                 td.stack[ply - 1].piece,
                 td.stack[ply - 1].mv.to(),
             )
@@ -1365,29 +1362,25 @@ fn update_correction_histories(td: &mut ThreadData, depth: i32, diff: i32, ply: 
     corrhist.non_pawn[Color::Black].update(stm, td.board.non_pawn_key(Color::Black), bonus);
 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 2].mv.is_present() {
-        let (in_check, capture, piece, to) = td.stack[ply - 2].contcorrhist;
-        td.continuation_corrhist.update(
-            in_check.as_bool(),
-            capture.as_bool(),
-            piece,
-            to,
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-            bonus,
-        );
+        let cont = td.stack[ply - 2].contcorrhist;
+        let sub = ContinuationKey {
+            in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
+            is_capture: if td.stack[ply - 1].mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+            piece: td.stack[ply - 1].piece,
+            square: td.stack[ply - 1].mv.to(),
+        };
+        td.continuation_corrhist.update(cont, sub, bonus);
     }
 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 4].mv.is_present() {
-        let (in_check, capture, piece, to) = td.stack[ply - 4].contcorrhist;
-        td.continuation_corrhist.update(
-            in_check.as_bool(),
-            capture.as_bool(),
-            piece,
-            to,
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-            bonus,
-        );
+        let cont = td.stack[ply - 4].contcorrhist;
+        let sub = ContinuationKey {
+            in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
+            is_capture: if td.stack[ply - 1].mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+            piece: td.stack[ply - 1].piece,
+            square: td.stack[ply - 1].mv.to(),
+        };
+        td.continuation_corrhist.update(cont, sub, bonus);
     }
 }
 
@@ -1395,10 +1388,14 @@ fn update_continuation_histories(td: &mut ThreadData, ply: isize, piece: Piece, 
     for offset in [1, 2, 4, 6] {
         let entry = &td.stack[ply - offset];
         if entry.mv.is_present() {
-            let (in_check, capture, p, to) = entry.conthist;
-            let in_check = in_check.as_bool();
-            let capture = capture.as_bool();
-            td.continuation_history.update(in_check, capture, p, to, piece, sq, bonus);
+            let cont = entry.conthist;
+            let sub = ContinuationKey {
+                in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
+                is_capture: if Move::NULL.is_noisy() { IsCapture::Yes } else { IsCapture::No }, // This may need to be adjusted if you want the actual move
+                piece,
+                square: sq,
+            };
+            td.continuation_history.update(cont, sub, bonus);
         }
     }
 }
@@ -1422,11 +1419,11 @@ fn undo_move(td: &mut ThreadData, mv: Move) {
     td.board.undo_move(mv);
 }
 
-fn make_cont_key(board: &Board, mv: Move) -> (InCheck, IsCapture, Piece, Square) {
-    (
-        if board.in_check() { InCheck::Yes } else { InCheck::No },
-        if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
-        board.moved_piece(mv),
-        mv.to(),
-    )
+fn make_cont_key(board: &Board, mv: Move) -> ContinuationKey {
+    ContinuationKey {
+        in_check: if board.in_check() { InCheck::Yes } else { InCheck::No },
+        is_capture: if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+        piece: board.moved_piece(mv),
+        square: mv.to(),
+    }
 }

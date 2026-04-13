@@ -1,6 +1,6 @@
-use crate::types::Square;
 use std::ops::{Index, IndexMut};
 
+use crate::history::ContinuationKey;
 use crate::types::{MAX_PLY, Move, Piece, Score};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -39,8 +39,8 @@ impl Stack {
     pub fn new() -> Box<Self> {
         let mut stack = Box::new(Self::default());
         for entry in &mut stack.data {
-            entry.conthist = (InCheck::No, IsCapture::No, Piece::None, Square::None);
-            entry.contcorrhist = (InCheck::No, IsCapture::No, Piece::None, Square::None);
+            entry.conthist = ContinuationKey::default();
+            entry.contcorrhist = ContinuationKey::default();
         }
         stack
     }
@@ -63,8 +63,8 @@ pub struct StackEntry {
     pub cutoff_count: i32,
     pub move_count: i32,
     pub reduction: i32,
-    pub conthist: (InCheck, IsCapture, Piece, Square),
-    pub contcorrhist: (InCheck, IsCapture, Piece, Square),
+    pub conthist: ContinuationKey,
+    pub contcorrhist: ContinuationKey,
 }
 
 unsafe impl Send for StackEntry {}
@@ -81,8 +81,8 @@ impl Default for StackEntry {
             cutoff_count: 0,
             move_count: 0,
             reduction: 0,
-            conthist: (InCheck::No, IsCapture::No, Piece::None, Square::None),
-            contcorrhist: (InCheck::No, IsCapture::No, Piece::None, Square::None),
+            conthist: ContinuationKey::default(),
+            contcorrhist: ContinuationKey::default(),
         }
     }
 }
