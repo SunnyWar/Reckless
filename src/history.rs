@@ -184,12 +184,26 @@ impl ContHistory for ContinuationCorrectionHistory {
 
     fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
         let (in_check, is_capture, piece, square) = key.decode();
-        &self.entries[in_check][is_capture][piece][square]
+        unsafe {
+            self.entries
+                .as_ref()
+                .get_unchecked(in_check)
+                .get_unchecked(is_capture)
+                .get_unchecked(piece)
+                .get_unchecked(square)
+        }
     }
 
     fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
         let (in_check, is_capture, piece, square) = key.decode();
-        &mut self.entries[in_check][is_capture][piece][square]
+        unsafe {
+            self.entries
+                .as_mut()
+                .get_unchecked_mut(in_check)
+                .get_unchecked_mut(is_capture)
+                .get_unchecked_mut(piece)
+                .get_unchecked_mut(square)
+        }
     }
 }
 
@@ -249,7 +263,12 @@ trait ContHistory {
 }
 
 fn continuation_history_get<T: ContHistory>(history: &T, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
-    history.history_entry(key)[sub_piece][sub_square] as i32
+    unsafe {
+        *history
+            .history_entry(key)
+            .get_unchecked(sub_piece as usize)
+            .get_unchecked(sub_square as usize) as i32
+    }
 }
 
 fn continuation_history_update<T: ContHistory>(
@@ -259,7 +278,12 @@ fn continuation_history_update<T: ContHistory>(
     sub_square: Square,
     bonus: i32,
 ) {
-    let entry = &mut history.history_entry_mut(key)[sub_piece][sub_square];
+    let entry = unsafe {
+        history
+            .history_entry_mut(key)
+            .get_unchecked_mut(sub_piece as usize)
+            .get_unchecked_mut(sub_square as usize)
+    };
     let bonus = bonus.clamp(-T::MAX_HISTORY, T::MAX_HISTORY);
     *entry += (bonus - bonus.abs() * (*entry) as i32 / T::MAX_HISTORY) as i16;
 }
@@ -286,12 +310,26 @@ impl ContHistory for ContinuationHistory {
 
     fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
         let (in_check, is_capture, piece, square) = key.decode();
-        &self.entries[in_check][is_capture][piece][square]
+        unsafe {
+            self.entries
+                .as_ref()
+                .get_unchecked(in_check)
+                .get_unchecked(is_capture)
+                .get_unchecked(piece)
+                .get_unchecked(square)
+        }
     }
 
     fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
         let (in_check, is_capture, piece, square) = key.decode();
-        &mut self.entries[in_check][is_capture][piece][square]
+        unsafe {
+            self.entries
+                .as_mut()
+                .get_unchecked_mut(in_check)
+                .get_unchecked_mut(is_capture)
+                .get_unchecked_mut(piece)
+                .get_unchecked_mut(square)
+        }
     }
 }
 
