@@ -9,11 +9,6 @@ type FromToHistory<T> = [[T; 64]; 64];
 type PieceToHistory<T> = [[T; 64]; 13];
 type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
 
-const CONT_CAPTURE_DIM: usize = 2;
-const CONT_PIECE_DIM: usize = 13;
-const CONT_SQUARE_DIM: usize = 64;
-const CONT_SUBTABLE_LEN: usize = CONT_PIECE_DIM * CONT_SQUARE_DIM;
-
 fn apply_bonus<const MAX: i32>(entry: &mut i16, bonus: i32) {
     let bonus = bonus.clamp(-MAX, MAX);
     *entry += (bonus - bonus.abs() * (*entry) as i32 / MAX) as i16;
@@ -215,43 +210,38 @@ impl Default for ContinuationCorrectionHistory {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ContinuationKey {
-    offset: usize,
+    in_check: u8,
+    is_capture: u8,
+    piece: u8,
+    square: u8,
     sentinel: bool,
 }
 
 impl ContinuationKey {
-    pub const SENTINEL: Self = Self { offset: 0, sentinel: true };
+    pub const SENTINEL: Self = Self {
+        in_check: 0,
+        is_capture: 0,
+        piece: 0,
+        square: 0,
+        sentinel: true,
+    };
 
     pub fn is_sentinel(self) -> bool {
         self.sentinel
     }
 
-    pub const fn outer_index(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> usize {
-        (((in_check as usize * CONT_CAPTURE_DIM + is_capture as usize) * CONT_PIECE_DIM + piece as usize)
-            * CONT_SQUARE_DIM)
-            + square as usize
-    }
-
     pub const fn from_parts(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> Self {
         Self {
-            offset: Self::outer_index(in_check, is_capture, piece, square) * CONT_SUBTABLE_LEN,
+            in_check: in_check as u8,
+            is_capture: is_capture as u8,
+            piece: piece as u8,
+            square: square as u8,
             sentinel: false,
         }
     }
 
     fn decode(self) -> (usize, usize, usize, usize) {
-        let mut idx = self.offset / CONT_SUBTABLE_LEN;
-
-        let square = idx % CONT_SQUARE_DIM;
-        idx /= CONT_SQUARE_DIM;
-
-        let piece = idx % CONT_PIECE_DIM;
-        idx /= CONT_PIECE_DIM;
-
-        let is_capture = idx % CONT_CAPTURE_DIM;
-        let in_check = idx / CONT_CAPTURE_DIM;
-
-        (in_check, is_capture, piece, square)
+        (self.in_check as usize, self.is_capture as usize, self.piece as usize, self.square as usize)
     }
 }
 
