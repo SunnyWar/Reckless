@@ -8,7 +8,7 @@ use crate::{
 type FromToHistory<T> = [[T; 64]; 64];
 type PieceToHistory<T> = [[T; 64]; 13];
 type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
-const CONT_SUBTABLE_LEN: usize = 13 * 64;
+const CONT_HISTORY_SUBTABLE_LEN: usize = 13 * 64;
 
 fn apply_bonus<const MAX: i32>(entry: &mut i16, bonus: i32) {
     let bonus = bonus.clamp(-MAX, MAX);
@@ -232,7 +232,7 @@ fn continuation_history_get<T: ContHistory>(
         return 0;
     }
     let final_offset =
-        key.subtable_index as usize * CONT_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
+        key.subtable_index as usize * CONT_HISTORY_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
     unsafe { *history.flat_entries().add(final_offset) as i32 }
 }
 
@@ -243,7 +243,7 @@ fn continuation_history_update<T: ContHistory>(
         return;
     }
     let final_offset =
-        key.subtable_index as usize * CONT_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
+        key.subtable_index as usize * CONT_HISTORY_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
     let entry = unsafe { &mut *history.flat_entries_mut().add(final_offset) };
     *entry += (bonus - bonus.abs() * (*entry) as i32 / T::MAX_HISTORY) as i16;
 }
