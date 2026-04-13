@@ -1381,10 +1381,5 @@ fn undo_move(td: &mut ThreadData, mv: Move) {
 }
 
 fn make_cont_key(board: &Board, mv: Move) -> ContinuationKey {
-    ContinuationKey {
-        in_check: board.in_check(),
-        is_capture: mv.is_noisy(),
-        piece: board.moved_piece(mv),
-        square: mv.to(),
-    }
+    ContinuationKey::from_parts(board.in_check(), mv.is_noisy(), board.moved_piece(mv), mv.to())
 }

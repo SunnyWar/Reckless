@@ -9,6 +9,14 @@ type FromToHistory<T> = [[T; 64]; 64];
 type PieceToHistory<T> = [[T; 64]; 13];
 type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
 
+const CONT_IN_CHECK_DIM: usize = 2;
+const CONT_CAPTURE_DIM: usize = 2;
+const CONT_PIECE_DIM: usize = 13;
+const CONT_SQUARE_DIM: usize = 64;
+const CONT_SUBTABLE_LEN: usize = CONT_PIECE_DIM * CONT_SQUARE_DIM;
+const CONT_OUTER_LEN: usize = CONT_IN_CHECK_DIM * CONT_CAPTURE_DIM * CONT_PIECE_DIM * CONT_SQUARE_DIM;
+const CONT_TOTAL_LEN: usize = CONT_OUTER_LEN * CONT_SUBTABLE_LEN;
+
 fn apply_bonus<const MAX: i32>(entry: &mut i16, bonus: i32) {
     let bonus = bonus.clamp(-MAX, MAX);
     *entry += (bonus - bonus.abs() * (*entry) as i32 / MAX) as i16;
@@ -165,41 +173,19 @@ pub struct ContinuationCorrectionHistory {
 impl ContinuationCorrectionHistory {
     const MAX_HISTORY: i32 = 16282;
 
-    pub fn history_entry(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
-        unsafe {
-            self.entries[in_check as usize]
-                .get_unchecked(capture as usize)
-                .get_unchecked(piece as usize)
-                .get_unchecked(to as usize)
-        }
-    }
-
-    pub fn history_entry_mut(
-        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
-    ) -> &mut PieceToHistory<i16> {
-        unsafe {
-            self.entries[in_check as usize]
-                .get_unchecked_mut(capture as usize)
-                .get_unchecked_mut(piece as usize)
-                .get_unchecked_mut(to as usize)
-        }
-    }
-
     pub fn get(&self, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
-        // SAFETY: piece/square indices are bounded by enum sizes
+        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
         unsafe {
-            *self
-                .history_entry(key.in_check, key.is_capture, key.piece, key.square)
-                .get_unchecked(sub_piece as usize)
-                .get_unchecked(sub_square as usize) as i32
+            *std::slice::from_raw_parts(self.entries.as_ref() as *const _ as *const i16, CONT_TOTAL_LEN)
+                .get_unchecked(index) as i32
         }
     }
 
     pub fn update(&mut self, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32) {
+        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
         let entry = unsafe {
-            self.history_entry_mut(key.in_check, key.is_capture, key.piece, key.square)
-                .get_unchecked_mut(sub_piece as usize)
-                .get_unchecked_mut(sub_square as usize)
+            std::slice::from_raw_parts_mut(self.entries.as_mut() as *mut _ as *mut i16, CONT_TOTAL_LEN)
+                .get_unchecked_mut(index)
         };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
@@ -213,20 +199,27 @@ impl Default for ContinuationCorrectionHistory {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ContinuationKey {
-    pub in_check: bool,
-    pub is_capture: bool,
-    pub piece: Piece,
-    pub square: Square,
+    pub offset: usize,
+}
+
+impl ContinuationKey {
+    #[inline(always)]
+    pub const fn outer_index(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> usize {
+        (((in_check as usize * CONT_CAPTURE_DIM + is_capture as usize) * CONT_PIECE_DIM + piece as usize)
+            * CONT_SQUARE_DIM)
+            + square as usize
+    }
+
+    pub const fn from_parts(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> Self {
+        Self {
+            offset: Self::outer_index(in_check, is_capture, piece, square) * CONT_SUBTABLE_LEN,
+        }
+    }
 }
 
 impl Default for ContinuationKey {
     fn default() -> Self {
-        Self {
-            in_check: false,
-            is_capture: false,
-            piece: Piece::None,
-            square: Square::None,
-        }
+        Self::from_parts(false, false, Piece::None, Square::A1)
     }
 }
 
@@ -238,40 +231,19 @@ pub struct ContinuationHistory {
 impl ContinuationHistory {
     const MAX_HISTORY: i32 = 15168;
 
-    pub fn history_entry(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
-        unsafe {
-            self.entries[in_check as usize]
-                .get_unchecked(capture as usize)
-                .get_unchecked(piece as usize)
-                .get_unchecked(to as usize)
-        }
-    }
-
-    pub fn history_entry_mut(
-        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
-    ) -> &mut PieceToHistory<i16> {
-        unsafe {
-            self.entries[in_check as usize]
-                .get_unchecked_mut(capture as usize)
-                .get_unchecked_mut(piece as usize)
-                .get_unchecked_mut(to as usize)
-        }
-    }
-
     pub fn get(&self, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
+        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
         unsafe {
-            *self
-                .history_entry(key.in_check, key.is_capture, key.piece, key.square)
-                .get_unchecked(sub_piece as usize)
-                .get_unchecked(sub_square as usize) as i32
+            *std::slice::from_raw_parts(self.entries.as_ref() as *const _ as *const i16, CONT_TOTAL_LEN)
+                .get_unchecked(index) as i32
         }
     }
 
     pub fn update(&mut self, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32) {
+        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
         let entry = unsafe {
-            self.history_entry_mut(key.in_check, key.is_capture, key.piece, key.square)
-                .get_unchecked_mut(sub_piece as usize)
-                .get_unchecked_mut(sub_square as usize)
+            std::slice::from_raw_parts_mut(self.entries.as_mut() as *mut _ as *mut i16, CONT_TOTAL_LEN)
+                .get_unchecked_mut(index)
         };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
