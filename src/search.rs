@@ -1,3 +1,4 @@
+use crate::board::Board;
 use crate::stack::{InCheck, IsCapture};
 use std::sync::atomic::Ordering;
 
@@ -1413,18 +1414,8 @@ fn update_continuation_histories(td: &mut ThreadData, ply: isize, piece: Piece, 
 fn make_move(td: &mut ThreadData, ply: isize, mv: Move) {
     td.stack[ply].mv = mv;
     td.stack[ply].piece = td.board.moved_piece(mv);
-    td.stack[ply].conthist = (
-        if td.board.in_check() { InCheck::Yes } else { InCheck::No },
-        if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
-        td.board.moved_piece(mv),
-        mv.to(),
-    );
-    td.stack[ply].contcorrhist = (
-        if td.board.in_check() { InCheck::Yes } else { InCheck::No },
-        if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
-        td.board.moved_piece(mv),
-        mv.to(),
-    );
+    td.stack[ply].conthist = make_cont_key(&td.board, mv);
+    td.stack[ply].contcorrhist = make_cont_key(&td.board, mv);
 
     td.shared.nodes.increment(td.id);
 
@@ -1437,4 +1428,13 @@ fn make_move(td: &mut ThreadData, ply: isize, mv: Move) {
 fn undo_move(td: &mut ThreadData, mv: Move) {
     td.nnue.pop();
     td.board.undo_move(mv);
+}
+
+fn make_cont_key(board: &Board, mv: Move) -> (InCheck, IsCapture, Piece, Square) {
+    (
+        if board.in_check() { InCheck::Yes } else { InCheck::No },
+        if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+        board.moved_piece(mv),
+        mv.to(),
+    )
 }

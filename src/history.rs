@@ -223,8 +223,7 @@ pub struct ContinuationHistory {
 impl ContinuationHistory {
     const MAX_HISTORY: i32 = 15168;
 
-    /// Returns a safe reference to the subtable for the given parameters.
-    pub fn subtable(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
+    pub fn history_entry(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
         unsafe {
             self.entries[in_check as usize]
                 .get_unchecked(capture as usize)
@@ -233,7 +232,7 @@ impl ContinuationHistory {
         }
     }
 
-    pub fn subtable_mut(
+    pub fn history_entry_mut(
         &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
     ) -> &mut PieceToHistory<i16> {
         unsafe {
@@ -249,7 +248,7 @@ impl ContinuationHistory {
     ) -> i32 {
         unsafe {
             *self
-                .subtable(in_check, capture, piece, to)
+                .history_entry(in_check, capture, piece, to)
                 .get_unchecked(sub_piece as usize)
                 .get_unchecked(sub_to as usize) as i32
         }
@@ -260,7 +259,7 @@ impl ContinuationHistory {
         bonus: i32,
     ) {
         let entry = unsafe {
-            self.subtable_mut(in_check, capture, piece, to)
+            self.history_entry_mut(in_check, capture, piece, to)
                 .get_unchecked_mut(sub_piece as usize)
                 .get_unchecked_mut(sub_to as usize)
         };
