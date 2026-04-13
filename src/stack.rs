@@ -43,8 +43,6 @@ pub struct StackEntry {
     pub contcorrhist: ContinuationKey,
 }
 
-unsafe impl Send for StackEntry {}
-
 impl Default for StackEntry {
     fn default() -> Self {
         Self {
