@@ -8,6 +8,7 @@ use crate::{
 type FromToHistory<T> = [[T; 64]; 64];
 type PieceToHistory<T> = [[T; 64]; 13];
 type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
+const CONT_SUBTABLE_LEN: usize = 13 * 64;
 
 fn apply_bonus<const MAX: i32>(entry: &mut i16, bonus: i32) {
     let bonus = bonus.clamp(-MAX, MAX);
@@ -177,18 +178,12 @@ impl ContinuationCorrectionHistory {
 impl ContHistory for ContinuationCorrectionHistory {
     const MAX_HISTORY: i32 = Self::MAX_HISTORY;
 
-    fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
-        unsafe {
-            &*(self.entries.as_ref() as *const ContinuationHistoryType as *const PieceToHistory<i16>)
-                .add(key.subtable_index as usize)
-        }
+    fn flat_entries(&self) -> *const i16 {
+        self.entries.as_ref() as *const ContinuationHistoryType as *const i16
     }
 
-    fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
-        unsafe {
-            &mut *(self.entries.as_mut() as *mut ContinuationHistoryType as *mut PieceToHistory<i16>)
-                .add(key.subtable_index as usize)
-        }
+    fn flat_entries_mut(&mut self) -> *mut i16 {
+        self.entries.as_mut() as *mut ContinuationHistoryType as *mut i16
     }
 }
 
@@ -226,8 +221,8 @@ impl Default for ContinuationKey {
 trait ContHistory {
     const MAX_HISTORY: i32;
 
-    fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16>;
-    fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16>;
+    fn flat_entries(&self) -> *const i16;
+    fn flat_entries_mut(&mut self) -> *mut i16;
 }
 
 fn continuation_history_get<T: ContHistory>(
@@ -236,7 +231,9 @@ fn continuation_history_get<T: ContHistory>(
     if key.is_sentinel() {
         return 0;
     }
-    unsafe { *history.history_entry(key).get_unchecked(sub_piece as usize).get_unchecked(sub_square as usize) as i32 }
+    let final_offset =
+        key.subtable_index as usize * CONT_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
+    unsafe { *history.flat_entries().add(final_offset) as i32 }
 }
 
 fn continuation_history_update<T: ContHistory>(
@@ -245,9 +242,9 @@ fn continuation_history_update<T: ContHistory>(
     if key.is_sentinel() {
         return;
     }
-    let entry = unsafe {
-        history.history_entry_mut(key).get_unchecked_mut(sub_piece as usize).get_unchecked_mut(sub_square as usize)
-    };
+    let final_offset =
+        key.subtable_index as usize * CONT_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
+    let entry = unsafe { &mut *history.flat_entries_mut().add(final_offset) };
     *entry += (bonus - bonus.abs() * (*entry) as i32 / T::MAX_HISTORY) as i16;
 }
 
@@ -271,18 +268,12 @@ impl ContinuationHistory {
 impl ContHistory for ContinuationHistory {
     const MAX_HISTORY: i32 = Self::MAX_HISTORY;
 
-    fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
-        unsafe {
-            &*(self.entries.as_ref() as *const ContinuationHistoryType as *const PieceToHistory<i16>)
-                .add(key.subtable_index as usize)
-        }
+    fn flat_entries(&self) -> *const i16 {
+        self.entries.as_ref() as *const ContinuationHistoryType as *const i16
     }
 
-    fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
-        unsafe {
-            &mut *(self.entries.as_mut() as *mut ContinuationHistoryType as *mut PieceToHistory<i16>)
-                .add(key.subtable_index as usize)
-        }
+    fn flat_entries_mut(&mut self) -> *mut i16 {
+        self.entries.as_mut() as *mut ContinuationHistoryType as *mut i16
     }
 }
 
