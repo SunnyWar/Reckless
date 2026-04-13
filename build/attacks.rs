@@ -13,6 +13,7 @@ const G_FILE: u64 = A_FILE << 6;
 const AB_FILE: u64 = A_FILE | B_FILE;
 const GH_FILE: u64 = G_FILE | H_FILE;
 
+#[derive(Copy, Clone)]
 pub enum Color {
     White,
     Black,

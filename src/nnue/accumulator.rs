@@ -25,7 +25,7 @@ pub struct CacheEntry {
 impl Default for CacheEntry {
     fn default() -> Self {
         Self {
-            values: PARAMETERS.ft_biases.clone(),
+            values: PARAMETERS.ft_biases,
             pieces: [Bitboard::default(); PieceType::NUM],
             colors: [Bitboard::default(); Color::NUM],
         }

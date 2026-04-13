@@ -292,7 +292,7 @@ struct Parameters {
 static PARAMETERS: Parameters = unsafe { std::mem::transmute(*include_bytes!(env!("MODEL"))) };
 
 #[repr(align(64))]
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 struct Aligned<T> {
     data: T,
 }

@@ -2,7 +2,7 @@ use std::{mem::MaybeUninit, ops::Index};
 
 use crate::types::MoveEntry;
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct ArrayVec<T: Copy, const N: usize> {
     data: [MaybeUninit<T>; N],
     len: usize,
