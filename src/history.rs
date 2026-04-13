@@ -215,10 +215,17 @@ impl Default for ContinuationCorrectionHistory {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ContinuationKey {
-    pub offset: usize,
+    offset: usize,
+    sentinel: bool,
 }
 
 impl ContinuationKey {
+    pub const SENTINEL: Self = Self { offset: 0, sentinel: true };
+
+    pub fn is_sentinel(self) -> bool {
+        self.sentinel
+    }
+
     pub const fn outer_index(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> usize {
         (((in_check as usize * CONT_CAPTURE_DIM + is_capture as usize) * CONT_PIECE_DIM + piece as usize)
             * CONT_SQUARE_DIM)
@@ -228,6 +235,7 @@ impl ContinuationKey {
     pub const fn from_parts(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> Self {
         Self {
             offset: Self::outer_index(in_check, is_capture, piece, square) * CONT_SUBTABLE_LEN,
+            sentinel: false,
         }
     }
 
@@ -249,7 +257,7 @@ impl ContinuationKey {
 
 impl Default for ContinuationKey {
     fn default() -> Self {
-        Self::from_parts(false, false, Piece::None, Square::A1)
+        Self::SENTINEL
     }
 }
 
@@ -263,12 +271,18 @@ trait ContHistory {
 fn continuation_history_get<T: ContHistory>(
     history: &T, key: ContinuationKey, sub_piece: Piece, sub_square: Square,
 ) -> i32 {
+    if key.is_sentinel() {
+        return 0;
+    }
     unsafe { *history.history_entry(key).get_unchecked(sub_piece as usize).get_unchecked(sub_square as usize) as i32 }
 }
 
 fn continuation_history_update<T: ContHistory>(
     history: &mut T, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32,
 ) {
+    if key.is_sentinel() {
+        return;
+    }
     let entry = unsafe {
         history.history_entry_mut(key).get_unchecked_mut(sub_piece as usize).get_unchecked_mut(sub_square as usize)
     };
