@@ -197,14 +197,7 @@ impl ThreadData {
 
     pub fn conthist(&self, ply: isize, index: isize, mv: Move) -> i32 {
         let cont = self.stack[ply - index].conthist;
-        self.continuation_history.get(
-            cont.in_check,
-            cont.is_capture,
-            cont.piece,
-            cont.square,
-            self.board.piece_on(mv.from()),
-            mv.to(),
-        )
+        self.continuation_history.get(cont, self.board.piece_on(mv.from()), mv.to())
     }
 
     pub fn print_uci_info(&self, depth: i32) {

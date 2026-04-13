@@ -185,22 +185,21 @@ impl ContinuationCorrectionHistory {
         }
     }
 
-    pub fn get(
-        &self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
-    ) -> i32 {
+    pub fn get(&self, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
+        // SAFETY: piece/square indices are bounded by enum sizes
         unsafe {
             *self
-                .history_entry(in_check, capture, piece, to)
+                .history_entry(key.in_check, key.is_capture, key.piece, key.square)
                 .get_unchecked(sub_piece as usize)
-                .get_unchecked(sub_to as usize) as i32
+                .get_unchecked(sub_square as usize) as i32
         }
     }
 
-    pub fn update(&mut self, key: ContinuationKey, sub_key: ContinuationKey, bonus: i32) {
+    pub fn update(&mut self, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32) {
         let entry = unsafe {
             self.history_entry_mut(key.in_check, key.is_capture, key.piece, key.square)
-                .get_unchecked_mut(sub_key.piece as usize)
-                .get_unchecked_mut(sub_key.square as usize)
+                .get_unchecked_mut(sub_piece as usize)
+                .get_unchecked_mut(sub_square as usize)
         };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
@@ -259,22 +258,20 @@ impl ContinuationHistory {
         }
     }
 
-    pub fn get(
-        &self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
-    ) -> i32 {
+    pub fn get(&self, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
         unsafe {
             *self
-                .history_entry(in_check, capture, piece, to)
+                .history_entry(key.in_check, key.is_capture, key.piece, key.square)
                 .get_unchecked(sub_piece as usize)
-                .get_unchecked(sub_to as usize) as i32
+                .get_unchecked(sub_square as usize) as i32
         }
     }
 
-    pub fn update(&mut self, key: ContinuationKey, sub_key: ContinuationKey, bonus: i32) {
+    pub fn update(&mut self, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32) {
         let entry = unsafe {
             self.history_entry_mut(key.in_check, key.is_capture, key.piece, key.square)
-                .get_unchecked_mut(sub_key.piece as usize)
-                .get_unchecked_mut(sub_key.square as usize)
+                .get_unchecked_mut(sub_piece as usize)
+                .get_unchecked_mut(sub_square as usize)
         };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }

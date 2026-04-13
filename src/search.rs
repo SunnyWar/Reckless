@@ -1071,13 +1071,7 @@ fn search<NODE: NodeType>(
             if entry.mv.is_present() {
                 let bonus = (159 * depth - 39).min(1160);
                 let cont = entry.conthist;
-                let sub = ContinuationKey {
-                    in_check: td.board.in_check(),
-                    is_capture: prior_move.is_noisy(),
-                    piece: td.stack[ply - 1].piece,
-                    square: prior_move.to(),
-                };
-                td.continuation_history.update(cont, sub, bonus);
+                td.continuation_history.update(cont, td.stack[ply - 1].piece, prior_move.to(), bonus);
             }
         } else if prior_move.is_noisy() {
             let captured = td.board.captured_piece().unwrap_or_default().piece_type();
@@ -1326,25 +1320,11 @@ fn eval_correction(td: &ThreadData, ply: isize) -> i32 {
         + corrhist.non_pawn[Color::Black].get(stm, td.board.non_pawn_key(Color::Black))
         + {
             let cont = td.stack[ply - 2].contcorrhist;
-            td.continuation_corrhist.get(
-                cont.in_check,
-                cont.is_capture,
-                cont.piece,
-                cont.square,
-                td.stack[ply - 1].piece,
-                td.stack[ply - 1].mv.to(),
-            )
+            td.continuation_corrhist.get(cont, td.stack[ply - 1].piece, td.stack[ply - 1].mv.to())
         }
         + {
             let cont = td.stack[ply - 4].contcorrhist;
-            td.continuation_corrhist.get(
-                cont.in_check,
-                cont.is_capture,
-                cont.piece,
-                cont.square,
-                td.stack[ply - 1].piece,
-                td.stack[ply - 1].mv.to(),
-            )
+            td.continuation_corrhist.get(cont, td.stack[ply - 1].piece, td.stack[ply - 1].mv.to())
         })
         / 73
 }
@@ -1360,26 +1340,15 @@ fn update_correction_histories(td: &mut ThreadData, depth: i32, diff: i32, ply: 
     corrhist.non_pawn[Color::White].update(stm, td.board.non_pawn_key(Color::White), bonus);
     corrhist.non_pawn[Color::Black].update(stm, td.board.non_pawn_key(Color::Black), bonus);
 
+    let sub_piece = td.stack[ply - 1].piece;
+    let sub_square = td.stack[ply - 1].mv.to();
+
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 2].mv.is_present() {
-        let cont = td.stack[ply - 2].contcorrhist;
-        let sub = ContinuationKey {
-            in_check: td.board.in_check(),
-            is_capture: td.stack[ply - 1].mv.is_noisy(),
-            piece: td.stack[ply - 1].piece,
-            square: td.stack[ply - 1].mv.to(),
-        };
-        td.continuation_corrhist.update(cont, sub, bonus);
+        td.continuation_corrhist.update(td.stack[ply - 2].contcorrhist, sub_piece, sub_square, bonus);
     }
 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 4].mv.is_present() {
-        let cont = td.stack[ply - 4].contcorrhist;
-        let sub = ContinuationKey {
-            in_check: td.board.in_check(),
-            is_capture: td.stack[ply - 1].mv.is_noisy(),
-            piece: td.stack[ply - 1].piece,
-            square: td.stack[ply - 1].mv.to(),
-        };
-        td.continuation_corrhist.update(cont, sub, bonus);
+        td.continuation_corrhist.update(td.stack[ply - 4].contcorrhist, sub_piece, sub_square, bonus);
     }
 }
 
@@ -1387,14 +1356,7 @@ fn update_continuation_histories(td: &mut ThreadData, ply: isize, piece: Piece, 
     for offset in [1, 2, 4, 6] {
         let entry = &td.stack[ply - offset];
         if entry.mv.is_present() {
-            let cont = entry.conthist;
-            let sub = ContinuationKey {
-                in_check: td.board.in_check(),
-                is_capture: Move::NULL.is_noisy(), // This may need to be adjusted if you want the actual move
-                piece,
-                square: sq,
-            };
-            td.continuation_history.update(cont, sub, bonus);
+            td.continuation_history.update(entry.conthist, piece, sq, bonus);
         }
     }
 }
