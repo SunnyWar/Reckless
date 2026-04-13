@@ -1,6 +1,5 @@
 use crate::board::Board;
 use crate::history::ContinuationKey;
-use crate::stack::{InCheck, IsCapture};
 use std::sync::atomic::Ordering;
 
 use crate::{
@@ -1073,8 +1072,8 @@ fn search<NODE: NodeType>(
                 let bonus = (159 * depth - 39).min(1160);
                 let cont = entry.conthist;
                 let sub = ContinuationKey {
-                    in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
-                    is_capture: if prior_move.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+                    in_check: td.board.in_check(),
+                    is_capture: prior_move.is_noisy(),
                     piece: td.stack[ply - 1].piece,
                     square: prior_move.to(),
                 };
@@ -1328,8 +1327,8 @@ fn eval_correction(td: &ThreadData, ply: isize) -> i32 {
         + {
             let cont = td.stack[ply - 2].contcorrhist;
             td.continuation_corrhist.get(
-                cont.in_check.as_bool(),
-                cont.is_capture.as_bool(),
+                cont.in_check,
+                cont.is_capture,
                 cont.piece,
                 cont.square,
                 td.stack[ply - 1].piece,
@@ -1339,8 +1338,8 @@ fn eval_correction(td: &ThreadData, ply: isize) -> i32 {
         + {
             let cont = td.stack[ply - 4].contcorrhist;
             td.continuation_corrhist.get(
-                cont.in_check.as_bool(),
-                cont.is_capture.as_bool(),
+                cont.in_check,
+                cont.is_capture,
                 cont.piece,
                 cont.square,
                 td.stack[ply - 1].piece,
@@ -1364,8 +1363,8 @@ fn update_correction_histories(td: &mut ThreadData, depth: i32, diff: i32, ply: 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 2].mv.is_present() {
         let cont = td.stack[ply - 2].contcorrhist;
         let sub = ContinuationKey {
-            in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
-            is_capture: if td.stack[ply - 1].mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+            in_check: td.board.in_check(),
+            is_capture: td.stack[ply - 1].mv.is_noisy(),
             piece: td.stack[ply - 1].piece,
             square: td.stack[ply - 1].mv.to(),
         };
@@ -1375,8 +1374,8 @@ fn update_correction_histories(td: &mut ThreadData, depth: i32, diff: i32, ply: 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 4].mv.is_present() {
         let cont = td.stack[ply - 4].contcorrhist;
         let sub = ContinuationKey {
-            in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
-            is_capture: if td.stack[ply - 1].mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+            in_check: td.board.in_check(),
+            is_capture: td.stack[ply - 1].mv.is_noisy(),
             piece: td.stack[ply - 1].piece,
             square: td.stack[ply - 1].mv.to(),
         };
@@ -1390,8 +1389,8 @@ fn update_continuation_histories(td: &mut ThreadData, ply: isize, piece: Piece, 
         if entry.mv.is_present() {
             let cont = entry.conthist;
             let sub = ContinuationKey {
-                in_check: if td.board.in_check() { InCheck::Yes } else { InCheck::No },
-                is_capture: if Move::NULL.is_noisy() { IsCapture::Yes } else { IsCapture::No }, // This may need to be adjusted if you want the actual move
+                in_check: td.board.in_check(),
+                is_capture: Move::NULL.is_noisy(), // This may need to be adjusted if you want the actual move
                 piece,
                 square: sq,
             };
@@ -1421,8 +1420,8 @@ fn undo_move(td: &mut ThreadData, mv: Move) {
 
 fn make_cont_key(board: &Board, mv: Move) -> ContinuationKey {
     ContinuationKey {
-        in_check: if board.in_check() { InCheck::Yes } else { InCheck::No },
-        is_capture: if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+        in_check: board.in_check(),
+        is_capture: mv.is_noisy(),
         piece: board.moved_piece(mv),
         square: mv.to(),
     }

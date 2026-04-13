@@ -1,4 +1,3 @@
-use crate::stack::{InCheck, IsCapture};
 use std::sync::atomic::{AtomicI16, Ordering};
 
 use crate::{
@@ -199,7 +198,7 @@ impl ContinuationCorrectionHistory {
 
     pub fn update(&mut self, key: ContinuationKey, sub_key: ContinuationKey, bonus: i32) {
         let entry = unsafe {
-            self.history_entry_mut(key.in_check.as_bool(), key.is_capture.as_bool(), key.piece, key.square)
+            self.history_entry_mut(key.in_check, key.is_capture, key.piece, key.square)
                 .get_unchecked_mut(sub_key.piece as usize)
                 .get_unchecked_mut(sub_key.square as usize)
         };
@@ -215,8 +214,8 @@ impl Default for ContinuationCorrectionHistory {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ContinuationKey {
-    pub in_check: InCheck,
-    pub is_capture: IsCapture,
+    pub in_check: bool,
+    pub is_capture: bool,
     pub piece: Piece,
     pub square: Square,
 }
@@ -224,8 +223,8 @@ pub struct ContinuationKey {
 impl Default for ContinuationKey {
     fn default() -> Self {
         Self {
-            in_check: InCheck::No,
-            is_capture: IsCapture::No,
+            in_check: false,
+            is_capture: false,
             piece: Piece::None,
             square: Square::None,
         }
@@ -273,7 +272,7 @@ impl ContinuationHistory {
 
     pub fn update(&mut self, key: ContinuationKey, sub_key: ContinuationKey, bonus: i32) {
         let entry = unsafe {
-            self.history_entry_mut(key.in_check.as_bool(), key.is_capture.as_bool(), key.piece, key.square)
+            self.history_entry_mut(key.in_check, key.is_capture, key.piece, key.square)
                 .get_unchecked_mut(sub_key.piece as usize)
                 .get_unchecked_mut(sub_key.square as usize)
         };

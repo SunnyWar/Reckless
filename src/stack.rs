@@ -3,30 +3,6 @@ use std::ops::{Index, IndexMut};
 use crate::history::ContinuationKey;
 use crate::types::{MAX_PLY, Move, Piece, Score};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum InCheck {
-    No,
-    Yes,
-}
-
-impl InCheck {
-    pub fn as_bool(self) -> bool {
-        self == InCheck::Yes
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum IsCapture {
-    No,
-    Yes,
-}
-
-impl IsCapture {
-    pub fn as_bool(self) -> bool {
-        self == IsCapture::Yes
-    }
-}
-
 pub struct Stack {
     data: [StackEntry; MAX_PLY + 16],
 }
