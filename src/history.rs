@@ -203,7 +203,6 @@ pub struct ContinuationKey {
 }
 
 impl ContinuationKey {
-    #[inline(always)]
     pub const fn outer_index(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> usize {
         (((in_check as usize * CONT_CAPTURE_DIM + is_capture as usize) * CONT_PIECE_DIM + piece as usize)
             * CONT_SQUARE_DIM)
