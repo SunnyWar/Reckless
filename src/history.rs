@@ -9,13 +9,10 @@ type FromToHistory<T> = [[T; 64]; 64];
 type PieceToHistory<T> = [[T; 64]; 13];
 type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
 
-const CONT_IN_CHECK_DIM: usize = 2;
 const CONT_CAPTURE_DIM: usize = 2;
 const CONT_PIECE_DIM: usize = 13;
 const CONT_SQUARE_DIM: usize = 64;
 const CONT_SUBTABLE_LEN: usize = CONT_PIECE_DIM * CONT_SQUARE_DIM;
-const CONT_OUTER_LEN: usize = CONT_IN_CHECK_DIM * CONT_CAPTURE_DIM * CONT_PIECE_DIM * CONT_SQUARE_DIM;
-const CONT_TOTAL_LEN: usize = CONT_OUTER_LEN * CONT_SUBTABLE_LEN;
 
 fn apply_bonus<const MAX: i32>(entry: &mut i16, bonus: i32) {
     let bonus = bonus.clamp(-MAX, MAX);
@@ -174,20 +171,25 @@ impl ContinuationCorrectionHistory {
     const MAX_HISTORY: i32 = 16282;
 
     pub fn get(&self, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
-        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
-        unsafe {
-            *std::slice::from_raw_parts(self.entries.as_ref() as *const _ as *const i16, CONT_TOTAL_LEN)
-                .get_unchecked(index) as i32
-        }
+        continuation_history_get(self, key, sub_piece, sub_square)
     }
 
     pub fn update(&mut self, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32) {
-        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
-        let entry = unsafe {
-            std::slice::from_raw_parts_mut(self.entries.as_mut() as *mut _ as *mut i16, CONT_TOTAL_LEN)
-                .get_unchecked_mut(index)
-        };
-        apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
+        continuation_history_update(self, key, sub_piece, sub_square, bonus);
+    }
+}
+
+impl ContHistory for ContinuationCorrectionHistory {
+    const MAX_HISTORY: i32 = Self::MAX_HISTORY;
+
+    fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
+        let (in_check, is_capture, piece, square) = key.decode();
+        &self.entries[in_check][is_capture][piece][square]
+    }
+
+    fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
+        let (in_check, is_capture, piece, square) = key.decode();
+        &mut self.entries[in_check][is_capture][piece][square]
     }
 }
 
@@ -214,12 +216,52 @@ impl ContinuationKey {
             offset: Self::outer_index(in_check, is_capture, piece, square) * CONT_SUBTABLE_LEN,
         }
     }
+
+    const fn decode(self) -> (usize, usize, usize, usize) {
+        let mut index = self.offset / CONT_SUBTABLE_LEN;
+
+        let square = index % CONT_SQUARE_DIM;
+        index /= CONT_SQUARE_DIM;
+
+        let piece = index % CONT_PIECE_DIM;
+        index /= CONT_PIECE_DIM;
+
+        let is_capture = index % CONT_CAPTURE_DIM;
+        index /= CONT_CAPTURE_DIM;
+
+        let in_check = index;
+
+        (in_check, is_capture, piece, square)
+    }
 }
 
 impl Default for ContinuationKey {
     fn default() -> Self {
         Self::from_parts(false, false, Piece::None, Square::A1)
     }
+}
+
+trait ContHistory {
+    const MAX_HISTORY: i32;
+
+    fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16>;
+    fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16>;
+}
+
+fn continuation_history_get<T: ContHistory>(history: &T, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
+    history.history_entry(key)[sub_piece][sub_square] as i32
+}
+
+fn continuation_history_update<T: ContHistory>(
+    history: &mut T,
+    key: ContinuationKey,
+    sub_piece: Piece,
+    sub_square: Square,
+    bonus: i32,
+) {
+    let entry = &mut history.history_entry_mut(key)[sub_piece][sub_square];
+    let bonus = bonus.clamp(-T::MAX_HISTORY, T::MAX_HISTORY);
+    *entry += (bonus - bonus.abs() * (*entry) as i32 / T::MAX_HISTORY) as i16;
 }
 
 pub struct ContinuationHistory {
@@ -231,20 +273,25 @@ impl ContinuationHistory {
     const MAX_HISTORY: i32 = 15168;
 
     pub fn get(&self, key: ContinuationKey, sub_piece: Piece, sub_square: Square) -> i32 {
-        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
-        unsafe {
-            *std::slice::from_raw_parts(self.entries.as_ref() as *const _ as *const i16, CONT_TOTAL_LEN)
-                .get_unchecked(index) as i32
-        }
+        continuation_history_get(self, key, sub_piece, sub_square)
     }
 
     pub fn update(&mut self, key: ContinuationKey, sub_piece: Piece, sub_square: Square, bonus: i32) {
-        let index = key.offset + sub_piece as usize * CONT_SQUARE_DIM + sub_square as usize;
-        let entry = unsafe {
-            std::slice::from_raw_parts_mut(self.entries.as_mut() as *mut _ as *mut i16, CONT_TOTAL_LEN)
-                .get_unchecked_mut(index)
-        };
-        apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
+        continuation_history_update(self, key, sub_piece, sub_square, bonus);
+    }
+}
+
+impl ContHistory for ContinuationHistory {
+    const MAX_HISTORY: i32 = Self::MAX_HISTORY;
+
+    fn history_entry(&self, key: ContinuationKey) -> &PieceToHistory<i16> {
+        let (in_check, is_capture, piece, square) = key.decode();
+        &self.entries[in_check][is_capture][piece][square]
+    }
+
+    fn history_entry_mut(&mut self, key: ContinuationKey) -> &mut PieceToHistory<i16> {
+        let (in_check, is_capture, piece, square) = key.decode();
+        &mut self.entries[in_check][is_capture][piece][square]
     }
 }
 
