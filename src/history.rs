@@ -165,7 +165,7 @@ pub struct ContinuationCorrectionHistory {
 impl ContinuationCorrectionHistory {
     const MAX_HISTORY: i32 = 16282;
 
-    pub fn subtable(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
+    pub fn history_entry(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
         unsafe {
             self.entries[in_check as usize]
                 .get_unchecked(capture as usize)
@@ -174,7 +174,7 @@ impl ContinuationCorrectionHistory {
         }
     }
 
-    pub fn subtable_mut(
+    pub fn history_entry_mut(
         &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
     ) -> &mut PieceToHistory<i16> {
         unsafe {
@@ -190,7 +190,7 @@ impl ContinuationCorrectionHistory {
     ) -> i32 {
         unsafe {
             *self
-                .subtable(in_check, capture, piece, to)
+                .history_entry(in_check, capture, piece, to)
                 .get_unchecked(sub_piece as usize)
                 .get_unchecked(sub_to as usize) as i32
         }
@@ -201,7 +201,7 @@ impl ContinuationCorrectionHistory {
         bonus: i32,
     ) {
         let entry = unsafe {
-            self.subtable_mut(in_check, capture, piece, to)
+            self.history_entry_mut(in_check, capture, piece, to)
                 .get_unchecked_mut(sub_piece as usize)
                 .get_unchecked_mut(sub_to as usize)
         };
