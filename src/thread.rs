@@ -1,4 +1,3 @@
-use crate::stack::{InCheck, IsCapture};
 use std::sync::{
     Arc,
     atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
@@ -198,9 +197,14 @@ impl ThreadData {
 
     pub fn conthist(&self, ply: isize, index: isize, mv: Move) -> i32 {
         let (in_check, capture, piece, to) = self.stack[ply - index].conthist;
-        let in_check = matches!(in_check, InCheck::Yes);
-        let capture = matches!(capture, IsCapture::Yes);
-        self.continuation_history.get(in_check, capture, piece, to, self.board.piece_on(mv.from()), mv.to())
+        self.continuation_history.get(
+            in_check.as_bool(),
+            capture.as_bool(),
+            piece,
+            to,
+            self.board.piece_on(mv.from()),
+            mv.to(),
+        )
     }
 
     pub fn print_uci_info(&self, depth: i32) {

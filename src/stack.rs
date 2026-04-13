@@ -9,10 +9,22 @@ pub enum InCheck {
     Yes,
 }
 
+impl InCheck {
+    pub fn as_bool(self) -> bool {
+        self == InCheck::Yes
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IsCapture {
     No,
     Yes,
+}
+
+impl IsCapture {
+    pub fn as_bool(self) -> bool {
+        self == IsCapture::Yes
+    }
 }
 
 pub struct Stack {
