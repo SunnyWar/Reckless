@@ -1,10 +1,22 @@
+use crate::types::Square;
 use std::ops::{Index, IndexMut};
 
 use crate::types::{MAX_PLY, Move, Piece, Score};
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum InCheck {
+    No,
+    Yes,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum IsCapture {
+    No,
+    Yes,
+}
+
 pub struct Stack {
     data: [StackEntry; MAX_PLY + 16],
-    sentinel: [[i16; 64]; 13],
 }
 
 impl Stack {
@@ -14,10 +26,9 @@ impl Stack {
 
     pub fn new() -> Box<Self> {
         let mut stack = Box::new(Self::default());
-        let ptr = &raw mut stack.sentinel;
         for entry in &mut stack.data {
-            entry.conthist = ptr;
-            entry.contcorrhist = ptr;
+            entry.conthist = (InCheck::No, IsCapture::No, Piece::None, Square::None);
+            entry.contcorrhist = (InCheck::No, IsCapture::No, Piece::None, Square::None);
         }
         stack
     }
@@ -25,10 +36,7 @@ impl Stack {
 
 impl Default for Stack {
     fn default() -> Self {
-        Self {
-            data: [StackEntry::default(); MAX_PLY + 16],
-            sentinel: [[0; 64]; 13],
-        }
+        Self { data: [StackEntry::default(); MAX_PLY + 16] }
     }
 }
 
@@ -43,8 +51,8 @@ pub struct StackEntry {
     pub cutoff_count: i32,
     pub move_count: i32,
     pub reduction: i32,
-    pub conthist: *mut [[i16; 64]; 13],
-    pub contcorrhist: *mut [[i16; 64]; 13],
+    pub conthist: (InCheck, IsCapture, Piece, Square),
+    pub contcorrhist: (InCheck, IsCapture, Piece, Square),
 }
 
 unsafe impl Send for StackEntry {}
@@ -61,8 +69,8 @@ impl Default for StackEntry {
             cutoff_count: 0,
             move_count: 0,
             reduction: 0,
-            conthist: std::ptr::null_mut(),
-            contcorrhist: std::ptr::null_mut(),
+            conthist: (InCheck::No, IsCapture::No, Piece::None, Square::None),
+            contcorrhist: (InCheck::No, IsCapture::No, Piece::None, Square::None),
         }
     }
 }

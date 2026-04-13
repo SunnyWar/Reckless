@@ -1,3 +1,4 @@
+use crate::stack::{InCheck, IsCapture};
 use std::sync::atomic::Ordering;
 
 use crate::{
@@ -1068,7 +1069,18 @@ fn search<NODE: NodeType>(
             let entry = &td.stack[ply - 2];
             if entry.mv.is_present() {
                 let bonus = (159 * depth - 39).min(1160);
-                td.continuation_history.update(entry.conthist, td.stack[ply - 1].piece, prior_move.to(), bonus);
+                let (in_check, capture, piece, to) = entry.conthist;
+                let in_check = matches!(in_check, InCheck::Yes);
+                let capture = matches!(capture, IsCapture::Yes);
+                td.continuation_history.update(
+                    in_check,
+                    capture,
+                    piece,
+                    to,
+                    td.stack[ply - 1].piece,
+                    prior_move.to(),
+                    bonus,
+                );
             }
         } else if prior_move.is_noisy() {
             let captured = td.board.captured_piece().unwrap_or_default().piece_type();
@@ -1315,16 +1327,32 @@ fn eval_correction(td: &ThreadData, ply: isize) -> i32 {
         + corrhist.minor.get(stm, td.board.minor_key())
         + corrhist.non_pawn[Color::White].get(stm, td.board.non_pawn_key(Color::White))
         + corrhist.non_pawn[Color::Black].get(stm, td.board.non_pawn_key(Color::Black))
-        + td.continuation_corrhist.get(
-            td.stack[ply - 2].contcorrhist,
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-        )
-        + td.continuation_corrhist.get(
-            td.stack[ply - 4].contcorrhist,
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-        ))
+        + {
+            let (in_check, capture, piece, to) = td.stack[ply - 2].contcorrhist;
+            let in_check = matches!(in_check, InCheck::Yes);
+            let capture = matches!(capture, IsCapture::Yes);
+            td.continuation_corrhist.get(
+                in_check,
+                capture,
+                piece,
+                to,
+                td.stack[ply - 1].piece,
+                td.stack[ply - 1].mv.to(),
+            )
+        }
+        + {
+            let (in_check, capture, piece, to) = td.stack[ply - 4].contcorrhist;
+            let in_check = matches!(in_check, InCheck::Yes);
+            let capture = matches!(capture, IsCapture::Yes);
+            td.continuation_corrhist.get(
+                in_check,
+                capture,
+                piece,
+                to,
+                td.stack[ply - 1].piece,
+                td.stack[ply - 1].mv.to(),
+            )
+        })
         / 73
 }
 
@@ -1340,8 +1368,14 @@ fn update_correction_histories(td: &mut ThreadData, depth: i32, diff: i32, ply: 
     corrhist.non_pawn[Color::Black].update(stm, td.board.non_pawn_key(Color::Black), bonus);
 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 2].mv.is_present() {
+        let (in_check, capture, piece, to) = td.stack[ply - 2].contcorrhist;
+        let in_check = matches!(in_check, InCheck::Yes);
+        let capture = matches!(capture, IsCapture::Yes);
         td.continuation_corrhist.update(
-            td.stack[ply - 2].contcorrhist,
+            in_check,
+            capture,
+            piece,
+            to,
             td.stack[ply - 1].piece,
             td.stack[ply - 1].mv.to(),
             bonus,
@@ -1349,8 +1383,14 @@ fn update_correction_histories(td: &mut ThreadData, depth: i32, diff: i32, ply: 
     }
 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 4].mv.is_present() {
+        let (in_check, capture, piece, to) = td.stack[ply - 4].contcorrhist;
+        let in_check = matches!(in_check, InCheck::Yes);
+        let capture = matches!(capture, IsCapture::Yes);
         td.continuation_corrhist.update(
-            td.stack[ply - 4].contcorrhist,
+            in_check,
+            capture,
+            piece,
+            to,
             td.stack[ply - 1].piece,
             td.stack[ply - 1].mv.to(),
             bonus,
@@ -1362,7 +1402,10 @@ fn update_continuation_histories(td: &mut ThreadData, ply: isize, piece: Piece, 
     for offset in [1, 2, 4, 6] {
         let entry = &td.stack[ply - offset];
         if entry.mv.is_present() {
-            td.continuation_history.update(entry.conthist, piece, sq, bonus);
+            let (in_check, capture, p, to) = entry.conthist;
+            let in_check = matches!(in_check, InCheck::Yes);
+            let capture = matches!(capture, IsCapture::Yes);
+            td.continuation_history.update(in_check, capture, p, to, piece, sq, bonus);
         }
     }
 }
@@ -1370,10 +1413,18 @@ fn update_continuation_histories(td: &mut ThreadData, ply: isize, piece: Piece, 
 fn make_move(td: &mut ThreadData, ply: isize, mv: Move) {
     td.stack[ply].mv = mv;
     td.stack[ply].piece = td.board.moved_piece(mv);
-    td.stack[ply].conthist =
-        td.continuation_history.subtable_ptr(td.board.in_check(), mv.is_noisy(), td.board.moved_piece(mv), mv.to());
-    td.stack[ply].contcorrhist =
-        td.continuation_corrhist.subtable_ptr(td.board.in_check(), mv.is_noisy(), td.board.moved_piece(mv), mv.to());
+    td.stack[ply].conthist = (
+        if td.board.in_check() { InCheck::Yes } else { InCheck::No },
+        if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+        td.board.moved_piece(mv),
+        mv.to(),
+    );
+    td.stack[ply].contcorrhist = (
+        if td.board.in_check() { InCheck::Yes } else { InCheck::No },
+        if mv.is_noisy() { IsCapture::Yes } else { IsCapture::No },
+        td.board.moved_piece(mv),
+        mv.to(),
+    );
 
     td.shared.nodes.increment(td.id);
 

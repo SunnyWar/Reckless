@@ -165,18 +165,46 @@ pub struct ContinuationCorrectionHistory {
 impl ContinuationCorrectionHistory {
     const MAX_HISTORY: i32 = 16282;
 
-    pub fn subtable_ptr(
+    pub fn subtable(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
+        unsafe {
+            self.entries[in_check as usize]
+                .get_unchecked(capture as usize)
+                .get_unchecked(piece as usize)
+                .get_unchecked(to as usize)
+        }
+    }
+
+    pub fn subtable_mut(
         &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
-    ) -> *mut PieceToHistory<i16> {
-        &raw mut self.entries[in_check as usize][capture as usize][piece][to]
+    ) -> &mut PieceToHistory<i16> {
+        unsafe {
+            self.entries[in_check as usize]
+                .get_unchecked_mut(capture as usize)
+                .get_unchecked_mut(piece as usize)
+                .get_unchecked_mut(to as usize)
+        }
     }
 
-    pub fn get(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
-        unsafe { (&*subtable_ptr)[piece][to] as i32 }
+    pub fn get(
+        &self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
+    ) -> i32 {
+        unsafe {
+            *self
+                .subtable(in_check, capture, piece, to)
+                .get_unchecked(sub_piece as usize)
+                .get_unchecked(sub_to as usize) as i32
+        }
     }
 
-    pub fn update(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
-        let entry = &mut unsafe { &mut *subtable_ptr }[piece][to];
+    pub fn update(
+        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
+        bonus: i32,
+    ) {
+        let entry = unsafe {
+            self.subtable_mut(in_check, capture, piece, to)
+                .get_unchecked_mut(sub_piece as usize)
+                .get_unchecked_mut(sub_to as usize)
+        };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
 }
@@ -195,18 +223,47 @@ pub struct ContinuationHistory {
 impl ContinuationHistory {
     const MAX_HISTORY: i32 = 15168;
 
-    pub fn subtable_ptr(
+    /// Returns a safe reference to the subtable for the given parameters.
+    pub fn subtable(&self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &PieceToHistory<i16> {
+        unsafe {
+            self.entries[in_check as usize]
+                .get_unchecked(capture as usize)
+                .get_unchecked(piece as usize)
+                .get_unchecked(to as usize)
+        }
+    }
+
+    pub fn subtable_mut(
         &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
-    ) -> *mut PieceToHistory<i16> {
-        &raw mut self.entries[in_check as usize][capture as usize][piece][to]
+    ) -> &mut PieceToHistory<i16> {
+        unsafe {
+            self.entries[in_check as usize]
+                .get_unchecked_mut(capture as usize)
+                .get_unchecked_mut(piece as usize)
+                .get_unchecked_mut(to as usize)
+        }
     }
 
-    pub fn get(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
-        (unsafe { &*subtable_ptr }[piece][to]) as i32
+    pub fn get(
+        &self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
+    ) -> i32 {
+        unsafe {
+            *self
+                .subtable(in_check, capture, piece, to)
+                .get_unchecked(sub_piece as usize)
+                .get_unchecked(sub_to as usize) as i32
+        }
     }
 
-    pub fn update(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
-        let entry = &mut unsafe { &mut *subtable_ptr }[piece][to];
+    pub fn update(
+        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square, sub_piece: Piece, sub_to: Square,
+        bonus: i32,
+    ) {
+        let entry = unsafe {
+            self.subtable_mut(in_check, capture, piece, to)
+                .get_unchecked_mut(sub_piece as usize)
+                .get_unchecked_mut(sub_to as usize)
+        };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
 }

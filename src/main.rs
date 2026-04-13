@@ -2,6 +2,7 @@
 #![warn(clippy::large_types_passed_by_value)]
 #![warn(clippy::trivially_copy_pass_by_ref)]
 #![warn(clippy::redundant_clone)]
+#![warn(clippy::perf)]
 
 mod board;
 mod evaluation;
