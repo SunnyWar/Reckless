@@ -196,19 +196,19 @@ impl Default for ContinuationCorrectionHistory {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ContinuationKey {
     sentinel: bool,
-    subtable_index: u16,
+    outer_entry_index: u16,
 }
 
 impl ContinuationKey {
-    pub const SENTINEL: Self = Self { sentinel: true, subtable_index: 0 };
+    pub const SENTINEL: Self = Self { sentinel: true, outer_entry_index: 0 };
 
     pub fn is_sentinel(self) -> bool {
         self.sentinel
     }
 
-    pub const fn from_parts(in_check: bool, is_capture: bool, piece: Piece, square: Square) -> Self {
-        let index = ((in_check as usize * 2 + is_capture as usize) * 13 + piece as usize) * 64 + square as usize;
-        Self { sentinel: false, subtable_index: index as u16 }
+    pub const fn from_parts(in_check: bool, is_noisy: bool, piece: Piece, square: Square) -> Self {
+        let index = ((in_check as usize * 2 + is_noisy as usize) * 13 + piece as usize) * 64 + square as usize;
+        Self { sentinel: false, outer_entry_index: index as u16 }
     }
 }
 
@@ -232,7 +232,7 @@ fn continuation_history_get<T: ContHistory>(
         return 0;
     }
     let final_offset =
-        key.subtable_index as usize * CONT_HISTORY_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
+        key.outer_entry_index as usize * CONT_HISTORY_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
     unsafe { *history.flat_entries().add(final_offset) as i32 }
 }
 
@@ -243,13 +243,13 @@ fn continuation_history_update<T: ContHistory>(
         return;
     }
     let final_offset =
-        key.subtable_index as usize * CONT_HISTORY_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
+        key.outer_entry_index as usize * CONT_HISTORY_SUBTABLE_LEN + (sub_piece as usize * 64) + sub_square as usize;
     let entry = unsafe { &mut *history.flat_entries_mut().add(final_offset) };
     *entry += (bonus - bonus.abs() * (*entry) as i32 / T::MAX_HISTORY) as i16;
 }
 
 pub struct ContinuationHistory {
-    // [in_check][capture][piece][to][piece][to]
+    // [in_check][noisy][piece][to][piece][to]
     entries: Box<ContinuationHistoryType>,
 }
 
