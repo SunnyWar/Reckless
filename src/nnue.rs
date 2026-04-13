@@ -226,7 +226,7 @@ impl Network {
                 forward::activate_ft(&self.pst_stack[self.index], &self.threat_stack[self.index], board.side_to_move());
             let (nnz_indexes, nnz_count) = forward::find_nnz(&ft_out, &self.nnz_table);
 
-            let l1_out = forward::propagate_l1(ft_out, &nnz_indexes[..nnz_count], bucket);
+            let l1_out = forward::propagate_l1(&ft_out, &nnz_indexes[..nnz_count], bucket);
             let l2_out = forward::propagate_l2(l1_out, bucket);
             let l3_out = forward::propagate_l3(l2_out, bucket);
 

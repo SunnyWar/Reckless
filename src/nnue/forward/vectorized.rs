@@ -52,7 +52,7 @@ pub unsafe fn activate_ft(pst: &PstAccumulator, threat: &ThreatAccumulator, stm:
     output
 }
 
-pub unsafe fn propagate_l1(ft_out: Aligned<[u8; L1_SIZE]>, nnz: &[u16], bucket: usize) -> Aligned<[f32; L2_SIZE]> {
+pub unsafe fn propagate_l1(ft_out: &Aligned<[u8; L1_SIZE]>, nnz: &[u16], bucket: usize) -> Aligned<[f32; L2_SIZE]> {
     const CHUNKS: usize = 4;
 
     let mut pre_activations = Aligned::new([simd::zeroed(); L2_SIZE / simd::F32_LANES]);
