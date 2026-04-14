@@ -56,6 +56,10 @@ impl Piece {
         unsafe { std::mem::transmute(index as u8) }
     }
 
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
     pub const fn piece_color(self) -> Color {
         unsafe { std::mem::transmute((self as u8) & 1) }
     }

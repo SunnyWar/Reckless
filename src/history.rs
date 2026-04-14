@@ -158,25 +158,23 @@ impl Default for CorrectionHistory {
 }
 
 pub struct ContinuationCorrectionHistory {
-    // [in_check][capture][piece][to][piece][to]
+    // [in_check][capture][piece][to]
     entries: Box<ContinuationHistoryType>,
 }
 
 impl ContinuationCorrectionHistory {
     const MAX_HISTORY: i32 = 16282;
 
-    pub fn subtable_ptr(
-        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
-    ) -> *mut PieceToHistory<i16> {
-        &raw mut self.entries[in_check as usize][capture as usize][piece][to]
+    pub fn subtable(&mut self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &mut PieceToHistory<i16> {
+        &mut self.entries[in_check as usize][capture as usize][piece.index()][to.index()]
     }
 
-    pub fn get(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
-        unsafe { (&*subtable_ptr)[piece][to] as i32 }
+    pub fn get(&self, subtable: &PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
+        unsafe { *subtable.get_unchecked(piece.index()).get_unchecked(to.index()) as i32 }
     }
 
-    pub fn update(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
-        let entry = &mut unsafe { &mut *subtable_ptr }[piece][to];
+    pub fn update(&self, subtable: &mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
+        let entry = unsafe { subtable.get_unchecked_mut(piece.index()).get_unchecked_mut(to.index()) };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
 }
@@ -195,18 +193,16 @@ pub struct ContinuationHistory {
 impl ContinuationHistory {
     const MAX_HISTORY: i32 = 15168;
 
-    pub fn subtable_ptr(
-        &mut self, in_check: bool, capture: bool, piece: Piece, to: Square,
-    ) -> *mut PieceToHistory<i16> {
-        &raw mut self.entries[in_check as usize][capture as usize][piece][to]
+    pub fn subtable(&mut self, in_check: bool, capture: bool, piece: Piece, to: Square) -> &mut PieceToHistory<i16> {
+        &mut self.entries[in_check as usize][capture as usize][piece.index()][to.index()]
     }
 
-    pub fn get(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
-        (unsafe { &*subtable_ptr }[piece][to]) as i32
+    pub fn get(&self, subtable: &PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
+        unsafe { *subtable.get_unchecked(piece.index()).get_unchecked(to.index()) as i32 }
     }
 
-    pub fn update(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
-        let entry = &mut unsafe { &mut *subtable_ptr }[piece][to];
+    pub fn update(&self, subtable: &mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
+        let entry = unsafe { subtable.get_unchecked_mut(piece.index()).get_unchecked_mut(to.index()) };
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
     }
 }
@@ -217,6 +213,7 @@ impl Default for ContinuationHistory {
     }
 }
 
+// replace with unsafe { Box::<T>::new_zeroed().assume_init() } when MSRV is 1.92
 fn zeroed_box<T>() -> Box<T> {
     unsafe {
         let layout = std::alloc::Layout::new::<T>();

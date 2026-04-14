@@ -38,6 +38,10 @@ impl Square {
         Self::new((rank << 3) | file)
     }
 
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
     pub const fn file(self) -> File {
         unsafe { std::mem::transmute(self as u8 & 7) }
     }
