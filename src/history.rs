@@ -95,7 +95,7 @@ impl NoisyHistoryEntry {
 }
 
 pub struct NoisyHistory {
-    // [piece][to][captured_piece_type][to_threatened]
+    // [in_check][capture][piece][to][piece][to]
     entries: Box<PieceToHistory<NoisyHistoryEntry>>,
 }
 
@@ -170,12 +170,11 @@ impl ContinuationCorrectionHistory {
     }
 
     pub fn get(&self, subtable: &PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
-        unsafe { *subtable.get_unchecked(piece.index()).get_unchecked(to.index()) as i32 }
+        subtable[piece.index()][to.index()] as i32
     }
 
     pub fn update(&self, subtable: &mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
-        let entry = unsafe { subtable.get_unchecked_mut(piece.index()).get_unchecked_mut(to.index()) };
-        apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
+        apply_bonus::<{ Self::MAX_HISTORY }>(&mut subtable[piece.index()][to.index()], bonus);
     }
 }
 
@@ -198,12 +197,11 @@ impl ContinuationHistory {
     }
 
     pub fn get(&self, subtable: &PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
-        unsafe { *subtable.get_unchecked(piece.index()).get_unchecked(to.index()) as i32 }
+        subtable[piece.index()][to.index()] as i32
     }
 
     pub fn update(&self, subtable: &mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
-        let entry = unsafe { subtable.get_unchecked_mut(piece.index()).get_unchecked_mut(to.index()) };
-        apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
+        apply_bonus::<{ Self::MAX_HISTORY }>(&mut subtable[piece.index()][to.index()], bonus);
     }
 }
 

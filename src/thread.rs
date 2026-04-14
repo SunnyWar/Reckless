@@ -12,7 +12,7 @@ use crate::{
     threadpool::ThreadPool,
     time::{Limits, TimeManager},
     transposition::TranspositionTable,
-    types::{MAX_MOVES, MAX_PLY, Move, Score, normalize_to_cp},
+    types::{MAX_MOVES, MAX_PLY, Move, Piece, Score, Square, normalize_to_cp},
 };
 
 #[repr(align(64))]
@@ -195,12 +195,32 @@ impl ThreadData {
         unsafe { &*self.shared.history }
     }
 
-    pub fn conthist(&self, ply: isize, index: isize, mv: Move) -> i32 {
-        self.continuation_history.get(
-            unsafe { &*self.stack[ply - index].conthist },
-            self.board.piece_on(mv.from()),
-            mv.to(),
-        )
+    #[inline(always)]
+    pub fn update_continuation_history(&mut self, ply: isize, piece: Piece, to: Square, bonus: i32) {
+        self.continuation_history.update(self.stack[ply].conthist_mut(), piece, to, bonus);
+    }
+
+    #[inline(always)]
+    pub fn get_continuation_history(&self, ply: isize, index: isize, mv: Move) -> i32 {
+        self.continuation_history.get(self.stack[ply - index].conthist(), self.board.piece_on(mv.from()), mv.to())
+    }
+
+    #[inline(always)]
+    pub fn update_continuation_correction(&mut self, ply: isize, piece: Piece, to: Square, bonus: i32) {
+        self.continuation_corrhist.update(self.stack[ply].contcorrhist_mut(), piece, to, bonus);
+    }
+
+    #[inline(always)]
+    pub fn get_continuation_correction(&self, ply: isize, offset: isize) -> i32 {
+        let entry = &self.stack[ply - offset];
+        self.continuation_corrhist.get(entry.contcorrhist(), self.stack[ply - 1].piece, self.stack[ply - 1].mv.to())
+    }
+
+    #[inline(always)]
+    pub fn update_previous_continuation(&mut self, ply: isize, bonus: i32) {
+        let piece = self.stack[ply - 1].piece;
+        let to = self.stack[ply - 1].mv.to();
+        self.update_continuation_history(ply - 2, piece, to, bonus);
     }
 
     pub fn print_uci_info(&self, depth: i32) {

@@ -1,3 +1,4 @@
+use std::ptr::NonNull;
 use std::sync::atomic::Ordering;
 
 use crate::{
@@ -271,6 +272,7 @@ fn search<NODE: NodeType>(
 
     let stm = td.board.side_to_move();
     let in_check = td.board.in_check();
+    td.stack[ply].in_check = in_check;
     let excluded = td.stack[ply].excluded.is_present();
 
     if !NODE::ROOT && NODE::PV {
@@ -552,8 +554,7 @@ fn search<NODE: NodeType>(
 
         let r = (5335 + 260 * depth + 493 * (estimated_score - beta).clamp(0, 1003) / 128) / 1024;
 
-        td.stack[ply].conthist = td.stack.sentinel().conthist;
-        td.stack[ply].contcorrhist = td.stack.sentinel().contcorrhist;
+        td.stack.reset_to_sentinel(ply);
         td.stack[ply].piece = Piece::None;
         td.stack[ply].mv = Move::NULL;
 
@@ -716,7 +717,9 @@ fn search<NODE: NodeType>(
         let is_quiet = mv.is_quiet();
 
         let history = if is_quiet {
-            td.quiet_history.get(td.board.all_threats(), stm, mv) + td.conthist(ply, 1, mv) + td.conthist(ply, 2, mv)
+            td.quiet_history.get(td.board.all_threats(), stm, mv)
+                + td.get_continuation_history(ply, 1, mv)
+                + td.get_continuation_history(ply, 2, mv)
         } else {
             let captured = td.board.piece_on(mv.to()).piece_type();
             td.noisy_history.get(td.board.all_threats(), td.board.moved_piece(mv), mv.to(), captured)
@@ -1068,12 +1071,7 @@ fn search<NODE: NodeType>(
             let entry = &td.stack[ply - 2];
             if entry.mv.is_present() {
                 let bonus = (159 * depth - 39).min(1160);
-                td.continuation_history.update(
-                    unsafe { &mut *entry.conthist },
-                    td.stack[ply - 1].piece,
-                    prior_move.to(),
-                    bonus,
-                );
+                td.update_previous_continuation(ply, bonus);
             }
         } else if prior_move.is_noisy() {
             let captured = td.board.captured_piece().unwrap_or_default().piece_type();
@@ -1320,16 +1318,8 @@ fn eval_correction(td: &ThreadData, ply: isize) -> i32 {
         + corrhist.minor.get(stm, td.board.minor_key())
         + corrhist.non_pawn[Color::White].get(stm, td.board.non_pawn_key(Color::White))
         + corrhist.non_pawn[Color::Black].get(stm, td.board.non_pawn_key(Color::Black))
-        + td.continuation_corrhist.get(
-            unsafe { &*td.stack[ply - 2].contcorrhist },
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-        )
-        + td.continuation_corrhist.get(
-            unsafe { &*td.stack[ply - 4].contcorrhist },
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-        ))
+        + td.get_continuation_correction(ply, 2)
+        + td.get_continuation_correction(ply, 4))
         / 73
 }
 
@@ -1345,21 +1335,11 @@ fn update_correction_histories(td: &mut ThreadData, depth: i32, diff: i32, ply: 
     corrhist.non_pawn[Color::Black].update(stm, td.board.non_pawn_key(Color::Black), bonus);
 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 2].mv.is_present() {
-        td.continuation_corrhist.update(
-            unsafe { &mut *td.stack[ply - 2].contcorrhist },
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-            bonus,
-        );
+        td.update_continuation_correction(ply - 2, td.stack[ply - 1].piece, td.stack[ply - 1].mv.to(), bonus);
     }
 
     if td.stack[ply - 1].mv.is_present() && td.stack[ply - 4].mv.is_present() {
-        td.continuation_corrhist.update(
-            unsafe { &mut *td.stack[ply - 4].contcorrhist },
-            td.stack[ply - 1].piece,
-            td.stack[ply - 1].mv.to(),
-            bonus,
-        );
+        td.update_continuation_correction(ply - 4, td.stack[ply - 1].piece, td.stack[ply - 1].mv.to(), bonus);
     }
 }
 
@@ -1367,18 +1347,19 @@ fn update_continuation_histories(td: &mut ThreadData, ply: isize, piece: Piece, 
     for offset in [1, 2, 4, 6] {
         let entry = &td.stack[ply - offset];
         if entry.mv.is_present() {
-            td.continuation_history.update(unsafe { &mut *entry.conthist }, piece, sq, bonus);
+            td.update_continuation_history(ply - offset, piece, sq, bonus);
         }
     }
 }
 
 fn make_move(td: &mut ThreadData, ply: isize, mv: Move) {
+    let in_check = td.stack[ply].in_check;
+    let piece = td.board.moved_piece(mv);
     td.stack[ply].mv = mv;
-    td.stack[ply].piece = td.board.moved_piece(mv);
-    td.stack[ply].conthist =
-        td.continuation_history.subtable(td.board.in_check(), mv.is_noisy(), td.board.moved_piece(mv), mv.to());
+    td.stack[ply].piece = piece;
+    td.stack[ply].conthist = NonNull::from(td.continuation_history.subtable(in_check, mv.is_noisy(), piece, mv.to()));
     td.stack[ply].contcorrhist =
-        td.continuation_corrhist.subtable(td.board.in_check(), mv.is_noisy(), td.board.moved_piece(mv), mv.to());
+        NonNull::from(td.continuation_corrhist.subtable(in_check, mv.is_noisy(), piece, mv.to()));
 
     td.shared.nodes.increment(td.id);
 
