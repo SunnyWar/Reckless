@@ -30,6 +30,28 @@ static SYSTEM_THREADS: LazyLock<CpuIndex> =
 #[cfg(all(target_os = "linux", not(target_os = "android")))]
 static PROCESSOR_AFFINITY: LazyLock<BTreeSet<CpuIndex>> = LazyLock::new(get_process_affinity);
 
+#[cfg(target_os = "windows")]
+mod windows_api {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    pub struct GroupAffinity {
+        pub mask: usize,
+        pub group: u16,
+        pub reserved: [u16; 3],
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        pub fn GetNumaHighestNodeNumber(highest_node_number: *mut u32) -> i32;
+        pub fn GetNumaNodeProcessorMaskEx(node: u16, processor_mask: *mut GroupAffinity) -> i32;
+        pub fn GetCurrentThread() -> *mut c_void;
+        pub fn SetThreadGroupAffinity(
+            thread: *mut c_void, group_affinity: *const GroupAffinity, previous_group_affinity: *mut GroupAffinity,
+        ) -> i32;
+    }
+}
+
 #[cfg(all(target_os = "linux", not(target_os = "android")))]
 fn get_process_affinity() -> BTreeSet<CpuIndex> {
     use libc::{CPU_ISSET, CPU_SETSIZE, CPU_ZERO, cpu_set_t, sched_getaffinity};
@@ -83,16 +105,19 @@ impl NumaConfig {
     }
 
     pub fn from_system() -> Self {
-        // Fallback for unsupported systems.
-        #[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
-        return Self::default();
-
         #[cfg(all(target_os = "linux", not(target_os = "android")))]
         {
             let mut cfg = NumaConfig::from_system_numa();
             cfg.remove_empty_numa_nodes();
-            cfg
+            return cfg;
         }
+
+        #[cfg(target_os = "windows")]
+        return NumaConfig::from_system_numa_windows();
+
+        // Fallback for unsupported systems.
+        #[allow(unreachable_code)]
+        Self::default()
     }
 
     pub fn num_numa_nodes(&self) -> NumaIndex {
@@ -168,6 +193,28 @@ impl NumaConfig {
             unsafe { sched_yield() };
         }
 
+        #[cfg(target_os = "windows")]
+        {
+            use std::collections::BTreeMap;
+            use windows_api::*;
+
+            let mut groups: BTreeMap<u16, usize> = BTreeMap::new();
+            for &cpu in &self.nodes[node] {
+                let group = (cpu / 64) as u16;
+                let bit = cpu % 64;
+                *groups.entry(group).or_insert(0) |= 1usize << bit;
+            }
+
+            let thread = unsafe { GetCurrentThread() };
+            for (group, mask) in groups {
+                let affinity = GroupAffinity { mask, group, reserved: [0; 3] };
+                let ok = unsafe { SetThreadGroupAffinity(thread, &affinity, std::ptr::null_mut()) };
+                if ok == 0 {
+                    eprintln!("warning: SetThreadGroupAffinity failed for group {group}; thread will run unbound");
+                }
+            }
+        }
+
         NumaReplicatedAccessToken::new(node)
     }
 
@@ -201,6 +248,38 @@ impl NumaConfig {
         }
 
         self.highest_cpu_index = self.node_by_cpu.keys().copied().max().unwrap_or(0);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn from_system_numa_windows() -> Self {
+        use windows_api::*;
+
+        let mut highest_node: u32 = 0;
+        if unsafe { GetNumaHighestNodeNumber(&mut highest_node) } == 0 || highest_node == 0 {
+            return Self::default();
+        }
+
+        let mut cfg = NumaConfig::empty();
+        for node in 0..=highest_node {
+            let mut affinity: GroupAffinity = unsafe { std::mem::zeroed() };
+            if unsafe { GetNumaNodeProcessorMaskEx(node as u16, &mut affinity) } == 0 {
+                return Self::default();
+            }
+
+            let base_cpu = affinity.group as usize * 64;
+            let mut mask = affinity.mask;
+            while mask != 0 {
+                let bit = mask.trailing_zeros() as usize;
+                cfg.add_cpu_to_node(node as usize, base_cpu + bit);
+                mask &= mask - 1; // clear lowest set bit
+            }
+        }
+
+        cfg.remove_empty_numa_nodes();
+        if cfg.num_numa_nodes() == 0 {
+            return Self::default();
+        }
+        cfg
     }
 
     fn from_system_numa() -> Self {
