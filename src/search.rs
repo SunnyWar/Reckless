@@ -4,7 +4,7 @@ use crate::{
     evaluation::correct_eval,
     movepick::{MovePicker, Stage},
     stack::Stack,
-    thread::{RootMove, Status, ThreadData},
+    thread::{Status, ThreadData},
     time::Limits,
     transposition::{Bound, TtDepth},
     types::{
@@ -61,7 +61,7 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
     td.multi_pv = td.multi_pv.min(td.root_moves.len());
 
     let mut average = vec![td.previous_best_score; td.multi_pv];
-    let mut last_best_rootmove = RootMove::default();
+    let mut last_best_rootmove = Move::NULL;
 
     let mut eval_stability = 0;
     let mut pv_stability = 0;
@@ -187,7 +187,7 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
             eval_stability = 0;
         }
 
-        if last_best_rootmove.mv == td.root_moves[0].mv {
+        if last_best_rootmove == td.root_moves[0].mv {
             pv_stability += 1;
         } else {
             pv_stability = 0;
@@ -199,12 +199,11 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
             && is_loss(td.root_moves[0].score)
             && td.shared.status.get() == Status::STOPPED
         {
-            if let Some(pos) = td.root_moves.iter().position(|rm| rm.mv == last_best_rootmove.mv) {
-                td.root_moves.remove(pos);
-                td.root_moves.insert(0, last_best_rootmove.clone());
+            if let Some(pos) = td.root_moves.iter().position(|rm| rm.mv == last_best_rootmove) {
+                td.root_moves[0..=pos].rotate_right(1);
             }
         } else {
-            last_best_rootmove = td.root_moves[0].clone();
+            last_best_rootmove = td.root_moves[0].mv;
         }
 
         if td.shared.status.get() == Status::STOPPED {
@@ -212,13 +211,15 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
         }
 
         let multiplier = || {
-            let nodes_factor = (2.7168 - 2.2669 * (td.root_moves[0].nodes as f32 / td.nodes() as f32)).max(0.5630_f32);
+            let nodes_factor =
+                2.2669_f32.mul_add(-(td.root_moves[0].nodes as f32 / td.nodes() as f32), 2.7168).max(0.5630);
 
-            let pv_stability = (1.25 - 0.05 * pv_stability as f32).max(0.85);
+            let pv_stability = 0.05_f32.mul_add(-(pv_stability as f32), 1.25).max(0.85);
 
-            let eval_stability = (1.2 - 0.04 * eval_stability as f32).max(0.88);
+            let eval_stability = 0.04_f32.mul_add(-(eval_stability as f32), 1.2).max(0.88);
 
-            let score_trend = (0.8 + 0.05 * (td.previous_best_score - td.root_moves[0].score) as f32).clamp(0.80, 1.45);
+            let score_trend =
+                0.05_f32.mul_add((td.previous_best_score - td.root_moves[0].score) as f32, 0.8).clamp(0.80, 1.45);
 
             let best_move_stability = 1.0 + best_move_changes as f32 / 4.0;
 
