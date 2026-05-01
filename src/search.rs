@@ -65,7 +65,6 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
 
     let mut eval_stability = 0;
     let mut pv_stability = 0;
-    let mut best_move_changes = 0;
     let mut soft_stop_voted = false;
 
     // Iterative Deepening
@@ -77,7 +76,6 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
             td.shared.status.set(Status::STOPPED);
             break;
         }
-        best_move_changes /= 2;
 
         td.sel_depth = 0;
         td.root_depth = depth;
@@ -193,8 +191,6 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
             pv_stability = 0;
         }
 
-        best_move_changes += td.best_move_changes;
-
         if td.root_moves[0].score != -Score::INFINITE
             && is_loss(td.root_moves[0].score)
             && td.shared.status.get() == Status::STOPPED
@@ -221,7 +217,7 @@ pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {
             let score_trend =
                 0.05_f32.mul_add((td.previous_best_score - td.root_moves[0].score) as f32, 0.8).clamp(0.80, 1.45);
 
-            let best_move_stability = 1.0 + best_move_changes as f32 / 4.0;
+            let best_move_stability = 1.0 + td.best_move_changes as f32 / 4.0;
 
             nodes_factor * pv_stability * eval_stability * score_trend * best_move_stability
         };
@@ -690,7 +686,6 @@ fn search<NODE: NodeType>(
     let mut move_picker = MovePicker::new(tt_move);
     let mut skip_quiets = false;
     let mut current_search_count = 0;
-    let mut alpha_raises = 0;
     let mut tt_move_score = Score::NONE;
 
     while let Some(mv) = move_picker.next::<NODE>(td, skip_quiets, ply) {
@@ -782,7 +777,7 @@ fn search<NODE: NodeType>(
 
             reduction -= 68 * move_count;
             reduction -= 3297 * correction_value.abs() / 1024;
-            reduction += 1306 * alpha_raises;
+            reduction += 1306 * (bound == Bound::Exact) as i32;
 
             reduction += 546 * (is_valid(tt_score) && tt_score <= alpha) as i32;
             reduction += 322 * (is_valid(tt_score) && tt_depth < depth) as i32;
@@ -983,10 +978,6 @@ fn search<NODE: NodeType>(
 
                 if !(NODE::ROOT && td.pv_index > 0) && mv != tt_move {
                     td.shared.tt.write(hash, depth, raw_eval, score, Bound::Lower, mv, ply, true, false);
-                }
-
-                if !is_decisive(score) {
-                    alpha_raises += 1;
                 }
             }
         }
