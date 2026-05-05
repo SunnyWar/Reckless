@@ -184,5 +184,5 @@ fn reckless_move_to_tb_move(mv: Move) -> TbMove {
 }
 
 fn tb_en_passant_square(board: &Board) -> u32 {
-    u32::from(board.en_passant() as u8 & 0x3F)
+    board.en_passant() as u32 & 0x3F
 }
