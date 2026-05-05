@@ -38,6 +38,8 @@ pub fn size() -> usize {
 }
 
 pub fn probe(board: &Board) -> Option<GameOutcome> {
+    let ep_square = tb_en_passant_square(board);
+
     let code = unsafe {
         tb_probe_wdl(
             board.colors(Color::White).0,
@@ -50,7 +52,7 @@ pub fn probe(board: &Board) -> Option<GameOutcome> {
             board.pieces(PieceType::Pawn).0,
             0,
             0,
-            board.en_passant() as u32 & 0x3F,
+            ep_square,
             board.side_to_move() == Color::White,
         )
     };
@@ -87,8 +89,13 @@ fn reckless_move_to_tb_move(mv: Move) -> TbMove {
     tb_move
 }
 
+fn tb_en_passant_square(board: &Board) -> u32 {
+    u32::from(board.en_passant() as u8 & 0x3F)
+}
+
 pub fn rank_rootmoves(td: &mut ThreadData) {
     let mut rootmoves_in_c: mem::MaybeUninit<TbRootMoves> = mem::MaybeUninit::uninit();
+    let ep_square = tb_en_passant_square(&td.board);
 
     unsafe {
         let tb_ptr = rootmoves_in_c.as_mut_ptr();
@@ -136,7 +143,7 @@ pub fn rank_rootmoves(td: &mut ThreadData) {
             td.board.pieces(PieceType::Pawn).0,
             td.board.halfmove_clock() as u32,
             0,
-            td.board.en_passant() as u32 & 0x3F,
+            ep_square,
             td.board.side_to_move() == Color::White,
             false,
             true,
@@ -163,7 +170,7 @@ pub fn rank_rootmoves(td: &mut ThreadData) {
             td.board.pieces(PieceType::Pawn).0,
             td.board.halfmove_clock() as u32,
             0,
-            td.board.en_passant() as u32 & 0x3F,
+            ep_square,
             td.board.side_to_move() == Color::White,
             true,
             tb_ptr,
