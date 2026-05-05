@@ -60,6 +60,12 @@ impl Square {
         }
     }
 
+    pub fn distance_from(self, square: Square) -> i32 {
+        let file_dist = (self.file() as i32 - square.file() as i32).abs();
+        let rank_dist = (self.rank() as i32 - square.rank() as i32).abs();
+        file_dist.max(rank_dist)
+    }
+
     pub const fn flip_rank(self) -> Self {
         Self::new(self as u8 ^ 56)
     }

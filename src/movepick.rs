@@ -3,7 +3,7 @@ use crate::{
     search::NodeType,
     setwise::{bishop_attacks_setwise, knight_attacks_setwise, pawn_attacks_setwise, rook_attacks_setwise},
     thread::ThreadData,
-    types::{ArrayVec, Bitboard, MAX_MOVES, Move, MoveEntry, MoveList, PieceType},
+    types::{ArrayVec, Bitboard, Color, MAX_MOVES, Move, MoveEntry, MoveList, PieceType, Square},
 };
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd)]
@@ -167,9 +167,9 @@ impl MovePicker {
         let threats = td.board.all_threats();
         let side = td.board.side_to_move();
         let occupancies = td.board.occupancies();
+        let pawn_threats = td.board.piece_threats(PieceType::Pawn);
 
         let threatened = {
-            let pawn_threats = td.board.piece_threats(PieceType::Pawn);
             let minor_threats =
                 pawn_threats | td.board.piece_threats(PieceType::Knight) | td.board.piece_threats(PieceType::Bishop);
             let rook_threats = minor_threats | td.board.piece_threats(PieceType::Rook);
@@ -199,11 +199,20 @@ impl MovePicker {
         };
 
         // don't move king wall pawns
-        let wall_pawns = if Bitboard::HOME_ROWS[side].contains(td.board.king_square(side)) {
-            king_attacks(td.board.king_square(side)) & td.board.pieces(PieceType::Pawn)
+        let my_king = td.board.king_square(side);
+        let wall_pawns = if Bitboard::HOME_ROWS[side].contains(my_king) {
+            king_attacks(my_king) & td.board.pieces(PieceType::Pawn)
         } else {
             Bitboard(0)
         };
+
+        // passed pawns
+        let mut passed_space = td.board.colored_pieces(!side, PieceType::Pawn) | pawn_threats;
+        passed_space |= passed_space.shift(Square::UP[!side]);
+        passed_space |= passed_space.shift(2 * Square::UP[!side]);
+        passed_space |= passed_space.shift(4 * Square::UP[!side]);
+        passed_space = !passed_space;
+        let passed_pawns = td.board.colored_pieces(side, PieceType::Pawn) & passed_space;
 
         for entry in self.list.iter_mut() {
             let mv = entry.mv;
@@ -219,6 +228,13 @@ impl MovePicker {
                 - 7584 * threatened[pt].contains(mv.to()) as i32
                 + 5000 * offense[pt].contains(mv.to()) as i32
                 - 4000 * wall_pawns.contains(mv.from()) as i32;
+
+            if td.board.material() < 2000 && !passed_pawns.is_empty() && pt == PieceType::King {
+                let passed_pawn = if side == Color::White { passed_pawns.msb() } else { passed_pawns.lsb() };
+                if mv.to().distance_from(passed_pawn) < mv.from().distance_from(passed_pawn) {
+                    entry.score += 3000;
+                }
+            }
         }
     }
 }
