@@ -343,12 +343,6 @@ impl ParametersHandle {
     }
 }
 
-#[derive(Clone)]
-enum ParametersStorage {
-    Embedded(&'static Parameters),
-    Owned(Arc<Parameters>),
-}
-
 #[repr(align(64))]
 #[derive(Copy, Clone)]
 struct Aligned<T> {
@@ -408,4 +402,10 @@ impl<T> std::ops::DerefMut for Aligned<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
+}
+
+#[derive(Clone)]
+enum ParametersStorage {
+    Embedded(&'static Parameters),
+    Owned(Arc<Parameters>),
 }

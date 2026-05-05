@@ -19,13 +19,6 @@ use crate::{
 };
 use std::sync::atomic::Ordering;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum Report {
-    None,
-    Minimal,
-    Full,
-}
-
 struct Root;
 
 struct PV;
@@ -45,6 +38,13 @@ impl NodeType for PV {
 impl NodeType for NonPV {
     const PV: bool = false;
     const ROOT: bool = false;
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum Report {
+    None,
+    Minimal,
+    Full,
 }
 
 pub trait NodeType {

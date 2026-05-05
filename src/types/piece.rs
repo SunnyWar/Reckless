@@ -4,25 +4,6 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
-#[repr(u8)]
-pub enum Piece {
-    WhitePawn,
-    BlackPawn,
-    WhiteKnight,
-    BlackKnight,
-    WhiteBishop,
-    BlackBishop,
-    WhiteRook,
-    BlackRook,
-    WhiteQueen,
-    BlackQueen,
-    WhiteKing,
-    BlackKing,
-    #[default]
-    None,
-}
-
 impl Piece {
     pub const NUM: usize = 12;
 
@@ -62,17 +43,6 @@ impl Piece {
     pub const fn piece_type(self) -> PieceType {
         unsafe { std::mem::transmute((self as u8) >> 1) }
     }
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum PieceType {
-    Pawn,
-    Knight,
-    Bishop,
-    Rook,
-    Queen,
-    King,
-    None,
 }
 
 impl PieceType {
@@ -159,4 +129,34 @@ impl<T> IndexMut<PieceType> for [T] {
     fn index_mut(&mut self, index: PieceType) -> &mut Self::Output {
         &mut self[index as usize]
     }
+}
+
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[repr(u8)]
+pub enum Piece {
+    WhitePawn,
+    BlackPawn,
+    WhiteKnight,
+    BlackKnight,
+    WhiteBishop,
+    BlackBishop,
+    WhiteRook,
+    BlackRook,
+    WhiteQueen,
+    BlackQueen,
+    WhiteKing,
+    BlackKing,
+    #[default]
+    None,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum PieceType {
+    Pawn,
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
+    King,
+    None,
 }

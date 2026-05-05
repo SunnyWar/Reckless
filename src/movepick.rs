@@ -6,15 +6,6 @@ use crate::{
     types::{ArrayVec, Bitboard, Color, MAX_MOVES, Move, MoveEntry, MoveList, PieceType, Square},
 };
 
-#[derive(Copy, Clone, Eq, PartialEq, PartialOrd)]
-pub enum Stage {
-    HashMove,
-    GenerateNoisy,
-    GoodNoisy,
-    Quiet,
-    BadNoisy,
-}
-
 pub struct MovePicker {
     list: MoveList,
     tt_move: Move,
@@ -237,4 +228,13 @@ impl MovePicker {
             }
         }
     }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd)]
+pub enum Stage {
+    HashMove,
+    GenerateNoisy,
+    GoodNoisy,
+    Quiet,
+    BadNoisy,
 }

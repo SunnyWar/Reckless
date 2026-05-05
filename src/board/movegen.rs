@@ -6,12 +6,6 @@ use crate::{
     types::{Bitboard, CastlingKind, File, MoveKind, MoveList, PieceType, Square},
 };
 
-#[derive(Eq, PartialEq)]
-enum Kind {
-    Quiet,
-    Noisy,
-}
-
 struct Quiet;
 
 struct Noisy;
@@ -218,6 +212,12 @@ impl MoveGenerator for Quiet {
 
 impl MoveGenerator for Noisy {
     const KIND: Kind = Kind::Noisy;
+}
+
+#[derive(Eq, PartialEq)]
+enum Kind {
+    Quiet,
+    Noisy,
 }
 
 trait MoveGenerator {

@@ -3,13 +3,6 @@ use std::{
     ops::{Index, IndexMut, Not},
 };
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[repr(u8)]
-pub enum Color {
-    White = 0,
-    Black = 1,
-}
-
 impl Color {
     pub const NUM: usize = 2;
 
@@ -52,4 +45,11 @@ impl Display for Color {
             Self::Black => write!(f, "b"),
         }
     }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(u8)]
+pub enum Color {
+    White = 0,
+    Black = 1,
 }

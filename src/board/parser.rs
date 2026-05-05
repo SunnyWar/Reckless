@@ -4,16 +4,6 @@ use crate::{
     types::{CastlingKind, Color, HOME_RANK, KING_TO_FILE, Piece, PieceType, ROOK_TO_FILE, Square},
 };
 
-#[derive(Debug)]
-pub enum ParseFenError {
-    /// The FEN string is missing piece placement data.
-    MissingPlacementData,
-    /// The FEN string contains an invalid piece type character.
-    InvalidPieceType,
-    /// The FEN string contains an invalid active color.
-    InvalidActiveColor,
-}
-
 impl Board {
     /// Parses a [Forsyth–Edwards Notation][fen] string into a `Board`.
     ///
@@ -179,4 +169,14 @@ impl std::fmt::Display for Board {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}\nFEN: {}", self.to_ascii(), self.to_fen())
     }
+}
+
+#[derive(Debug)]
+pub enum ParseFenError {
+    /// The FEN string is missing piece placement data.
+    MissingPlacementData,
+    /// The FEN string contains an invalid piece type character.
+    InvalidPieceType,
+    /// The FEN string contains an invalid active color.
+    InvalidActiveColor,
 }

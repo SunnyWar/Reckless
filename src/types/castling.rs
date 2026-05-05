@@ -2,28 +2,6 @@ use super::Square;
 use crate::{board::Board, types::Color};
 use std::ops::{Index, IndexMut};
 
-#[derive(Copy, Clone)]
-pub enum CastlingKind {
-    WhiteKingside = 0b0001,
-    WhiteQueenside = 0b0010,
-    BlackKingside = 0b0100,
-    BlackQueenside = 0b1000,
-}
-
-impl CastlingKind {
-    pub const KINDS: [[CastlingKind; 2]; 2] =
-        [[Self::WhiteQueenside, Self::WhiteKingside], [Self::BlackQueenside, Self::BlackKingside]];
-
-    pub const fn landing_square(self) -> Square {
-        match self {
-            Self::WhiteKingside => Square::G1,
-            Self::WhiteQueenside => Square::C1,
-            Self::BlackKingside => Square::G8,
-            Self::BlackQueenside => Square::C8,
-        }
-    }
-}
-
 #[derive(Copy, Clone, Default)]
 pub struct Castling {
     pub raw: u8,
@@ -72,6 +50,20 @@ impl Castling {
     }
 }
 
+impl CastlingKind {
+    pub const KINDS: [[CastlingKind; 2]; 2] =
+        [[Self::WhiteQueenside, Self::WhiteKingside], [Self::BlackQueenside, Self::BlackKingside]];
+
+    pub const fn landing_square(self) -> Square {
+        match self {
+            Self::WhiteKingside => Square::G1,
+            Self::WhiteQueenside => Square::C1,
+            Self::BlackKingside => Square::G8,
+            Self::BlackQueenside => Square::C8,
+        }
+    }
+}
+
 impl<T> Index<CastlingKind> for [T] {
     type Output = T;
 
@@ -92,4 +84,12 @@ impl<T> Index<Castling> for [T] {
     fn index(&self, index: Castling) -> &Self::Output {
         &self[index.raw as usize]
     }
+}
+
+#[derive(Copy, Clone)]
+pub enum CastlingKind {
+    WhiteKingside = 0b0001,
+    WhiteQueenside = 0b0010,
+    BlackKingside = 0b0100,
+    BlackQueenside = 0b1000,
 }

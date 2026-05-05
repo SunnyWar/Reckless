@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
-
 use crate::{
     board::{Board, NullBoardObserver},
     search::Report,
@@ -12,12 +11,6 @@ use crate::{
     transposition::DEFAULT_TT_SIZE,
     types::{Color, MAX_MOVES, Move, Piece, Score, Square, is_decisive, is_loss, is_win},
 };
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum Mode {
-    Cli,
-    Uci,
-}
 
 struct Settings {
     frc: bool,
@@ -35,6 +28,12 @@ impl Default for Settings {
             report: Report::Full,
         }
     }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum Mode {
+    Cli,
+    Uci,
 }
 
 pub fn message_loop(mut buffer: VecDeque<String>) {

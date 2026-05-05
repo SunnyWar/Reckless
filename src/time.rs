@@ -3,16 +3,6 @@ use std::time::{Duration, Instant};
 
 const TIME_OVERHEAD_MS: u64 = 15;
 
-#[derive(Clone, Debug)]
-pub enum Limits {
-    Infinite,
-    Depth(i32),
-    Time(u64),
-    Nodes(u64),
-    Fischer(u64, u64),
-    Cyclic(u64, u64, u64),
-}
-
 #[derive(Clone)]
 pub struct TimeManager {
     limits: Limits,
@@ -90,4 +80,14 @@ impl TimeManager {
     pub fn limits(&self) -> Limits {
         self.limits.clone()
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum Limits {
+    Infinite,
+    Depth(i32),
+    Time(u64),
+    Nodes(u64),
+    Fischer(u64, u64),
+    Cyclic(u64, u64, u64),
 }

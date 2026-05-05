@@ -51,15 +51,6 @@ impl Flags {
     }
 }
 
-/// Type of the score returned by the search.
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum Bound {
-    None,
-    Exact,
-    Lower,
-    Upper,
-}
-
 /// Internal representation of a transposition table entry (10 bytes).
 #[derive(Clone)]
 #[repr(C)]
@@ -81,21 +72,6 @@ impl InternalEntry {
 impl InternalEntry {
     pub const fn relative_age(&self, tt_age: u8) -> i32 {
         ((AGE_CYCLE + tt_age - self.flags.age()) & AGE_MASK) as i32
-    }
-}
-
-pub enum TtDepth {}
-
-impl TtDepth {
-    pub const NONE: i32 = 0;
-    pub const SOME: i32 = -1;
-
-    const fn from_tt(offset_depth: u8) -> i32 {
-        offset_depth as i32 - 1
-    }
-
-    fn to_tt(depth: i32) -> u8 {
-        (depth + 1).clamp(u8::MIN as i32, u8::MAX as i32) as u8
     }
 }
 
@@ -257,6 +233,19 @@ impl TranspositionTable {
     }
 }
 
+impl TtDepth {
+    pub const NONE: i32 = 0;
+    pub const SOME: i32 = -1;
+
+    const fn from_tt(offset_depth: u8) -> i32 {
+        offset_depth as i32 - 1
+    }
+
+    fn to_tt(depth: i32) -> u8 {
+        (depth + 1).clamp(u8::MIN as i32, u8::MAX as i32) as u8
+    }
+}
+
 unsafe impl Sync for TranspositionTable {}
 
 impl Default for TranspositionTable {
@@ -275,6 +264,17 @@ impl Drop for TranspositionTable {
         unsafe { deallocate(self.ptr(), self.len()) };
     }
 }
+
+/// Type of the score returned by the search.
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum Bound {
+    None,
+    Exact,
+    Lower,
+    Upper,
+}
+
+pub enum TtDepth {}
 
 const fn index(hash: u64, len: usize) -> usize {
     // Fast hash table index calculation
