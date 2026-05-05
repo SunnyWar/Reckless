@@ -1,5 +1,3 @@
-use std::{ffi, mem, ptr, sync::atomic::Ordering};
-
 use crate::{
     bindings::{
         TB_DRAW, TB_LARGEST, TB_LOSS, TB_MAX_MOVES, TB_WIN, TbMove, TbRootMove, TbRootMoves, tb_init,
@@ -9,6 +7,9 @@ use crate::{
     thread::{RootMove, ThreadData},
     types::{Color, MAX_PLY, Move, PieceType, Score},
 };
+use std::{ffi, mem, ptr, sync::atomic::Ordering};
+
+static mut SIZE: usize = 0;
 
 #[derive(Eq, PartialEq)]
 pub enum GameOutcome {
@@ -16,8 +17,6 @@ pub enum GameOutcome {
     Loss,
     Draw,
 }
-
-static mut SIZE: usize = 0;
 
 pub fn initialize(path: &str) -> Option<usize> {
     let cpath = ffi::CString::new(path).ok()?;

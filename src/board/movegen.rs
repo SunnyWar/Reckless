@@ -12,19 +12,9 @@ enum Kind {
     Noisy,
 }
 
-trait MoveGenerator {
-    const KIND: Kind;
-}
-
 struct Quiet;
-impl MoveGenerator for Quiet {
-    const KIND: Kind = Kind::Quiet;
-}
 
 struct Noisy;
-impl MoveGenerator for Noisy {
-    const KIND: Kind = Kind::Noisy;
-}
 
 impl super::Board {
     pub fn has_legal_moves(&self) -> bool {
@@ -220,4 +210,16 @@ impl super::Board {
             }
         }
     }
+}
+
+impl MoveGenerator for Quiet {
+    const KIND: Kind = Kind::Quiet;
+}
+
+impl MoveGenerator for Noisy {
+    const KIND: Kind = Kind::Noisy;
+}
+
+trait MoveGenerator {
+    const KIND: Kind;
 }

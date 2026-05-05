@@ -1,15 +1,11 @@
+use crate::types::{Bitboard, Color, Move, Piece, PieceType, Square};
 use std::sync::atomic::{AtomicI16, Ordering};
 
-use crate::types::{Bitboard, Color, Move, Piece, PieceType, Square};
-
 type FromToHistory<T> = [[T; 64]; 64];
-type PieceToHistory<T> = [[T; 64]; 13];
-type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
 
-fn apply_bonus<const MAX: i32>(entry: &mut i16, bonus: i32) {
-    let bonus = bonus.clamp(-MAX, MAX);
-    *entry += (bonus - bonus.abs() * (*entry) as i32 / MAX) as i16;
-}
+type PieceToHistory<T> = [[T; 64]; 13];
+
+type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
 
 struct QuietHistoryEntry {
     factorizer: i16,
@@ -59,12 +55,6 @@ impl QuietHistory {
     }
 }
 
-impl Default for QuietHistory {
-    fn default() -> Self {
-        Self { entries: zeroed_box() }
-    }
-}
-
 struct NoisyHistoryEntry {
     factorizer: i16,
     buckets: [[i16; 2]; 7],
@@ -110,12 +100,6 @@ impl NoisyHistory {
     }
 }
 
-impl Default for NoisyHistory {
-    fn default() -> Self {
-        Self { entries: zeroed_box() }
-    }
-}
-
 pub struct CorrectionHistory {
     // [bucket][side_to_move][key]
     entries: Box<[[[AtomicI16; Self::SIZE]; 2]; 16]>,
@@ -148,12 +132,6 @@ impl CorrectionHistory {
     }
 }
 
-impl Default for CorrectionHistory {
-    fn default() -> Self {
-        Self { entries: zeroed_box() }
-    }
-}
-
 pub struct ContinuationCorrectionHistory {
     // [in_check][capture][piece][to][piece][to]
     entries: Box<ContinuationHistoryType>,
@@ -175,12 +153,6 @@ impl ContinuationCorrectionHistory {
     pub fn update(&self, subtable_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
         let entry = &mut unsafe { &mut *subtable_ptr }[piece][to];
         apply_bonus::<{ Self::MAX_HISTORY }>(entry, bonus);
-    }
-}
-
-impl Default for ContinuationCorrectionHistory {
-    fn default() -> Self {
-        Self { entries: zeroed_box() }
     }
 }
 
@@ -208,10 +180,39 @@ impl ContinuationHistory {
     }
 }
 
+impl Default for QuietHistory {
+    fn default() -> Self {
+        Self { entries: zeroed_box() }
+    }
+}
+
+impl Default for NoisyHistory {
+    fn default() -> Self {
+        Self { entries: zeroed_box() }
+    }
+}
+
+impl Default for CorrectionHistory {
+    fn default() -> Self {
+        Self { entries: zeroed_box() }
+    }
+}
+
+impl Default for ContinuationCorrectionHistory {
+    fn default() -> Self {
+        Self { entries: zeroed_box() }
+    }
+}
+
 impl Default for ContinuationHistory {
     fn default() -> Self {
         Self { entries: zeroed_box() }
     }
+}
+
+fn apply_bonus<const MAX: i32>(entry: &mut i16, bonus: i32) {
+    let bonus = bonus.clamp(-MAX, MAX);
+    *entry += (bonus - bonus.abs() * (*entry) as i32 / MAX) as i16;
 }
 
 fn zeroed_box<T>() -> Box<T> {

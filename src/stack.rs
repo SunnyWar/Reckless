@@ -1,6 +1,5 @@
-use std::ops::{Index, IndexMut};
-
 use crate::types::{MAX_PLY, Move, Piece, Score};
+use std::ops::{Index, IndexMut};
 
 pub struct Stack {
     data: [StackEntry; MAX_PLY + 16],
@@ -23,15 +22,6 @@ impl Stack {
     }
 }
 
-impl Default for Stack {
-    fn default() -> Self {
-        Self {
-            data: [StackEntry::default(); MAX_PLY + 16],
-            sentinel: [[0; 64]; 13],
-        }
-    }
-}
-
 #[derive(Copy, Clone)]
 pub struct StackEntry {
     pub mv: Move,
@@ -45,6 +35,15 @@ pub struct StackEntry {
     pub reduction: i32,
     pub conthist: *mut [[i16; 64]; 13],
     pub contcorrhist: *mut [[i16; 64]; 13],
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self {
+            data: [StackEntry::default(); MAX_PLY + 16],
+            sentinel: [[0; 64]; 13],
+        }
+    }
 }
 
 unsafe impl Send for StackEntry {}

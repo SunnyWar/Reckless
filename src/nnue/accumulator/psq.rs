@@ -5,6 +5,9 @@ use crate::{
     types::{ArrayVec, Bitboard, Color, Move, MoveKind, Piece, PieceType, Square},
 };
 
+const REGISTERS: usize = 8;
+const _: () = assert!(L1_SIZE.is_multiple_of(REGISTERS * simd::I16_LANES));
+
 pub type PstFeature = u16;
 
 #[derive(Clone)]
@@ -200,9 +203,6 @@ impl PstAccumulator {
         }
     }
 }
-
-const REGISTERS: usize = 8;
-const _: () = assert!(L1_SIZE.is_multiple_of(REGISTERS * simd::I16_LANES));
 
 unsafe fn apply_changes(
     entry: &mut CacheEntry, adds: ArrayVec<PstFeature, 64>, subs: ArrayVec<PstFeature, 64>, parameters: &Parameters,

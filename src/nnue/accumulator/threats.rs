@@ -5,18 +5,17 @@ use crate::{
     nnue::Parameters,
     types::{ArrayVec, Color, Piece, Square},
 };
-
-mod threat_index;
+#[cfg(not(target_feature = "avx2"))]
+pub use scalar::*;
 pub use threat_index::*;
+#[cfg(target_feature = "avx2")]
+pub use vectorized::*;
 
 #[cfg(not(target_feature = "avx2"))]
 mod scalar;
-#[cfg(not(target_feature = "avx2"))]
-pub use scalar::*;
+mod threat_index;
 #[cfg(target_feature = "avx2")]
 mod vectorized;
-#[cfg(target_feature = "avx2")]
-pub use vectorized::*;
 
 #[derive(Copy, Clone)]
 #[repr(transparent)]

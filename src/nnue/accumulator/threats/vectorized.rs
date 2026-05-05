@@ -3,16 +3,15 @@ use crate::{
     nnue::ThreatAccumulator,
     types::{Piece, Square},
 };
-
-#[cfg(target_feature = "avx512vbmi2")]
-mod avx512;
+#[cfg(all(target_feature = "avx2", not(target_feature = "avx512vbmi2")))]
+use avx2::*;
 #[cfg(target_feature = "avx512vbmi2")]
 use avx512::*;
 
 #[cfg(all(target_feature = "avx2", not(target_feature = "avx512vbmi2")))]
 mod avx2;
-#[cfg(all(target_feature = "avx2", not(target_feature = "avx512vbmi2")))]
-use avx2::*;
+#[cfg(target_feature = "avx512vbmi2")]
+mod avx512;
 
 const RAY_PERMUTATIONS: [[u8; 64]; 64] = {
     const OFFSETS: [u8; 64] = [
@@ -43,7 +42,6 @@ const RAY_PERMUTATIONS: [[u8; 64]; 64] = {
     }
     perms
 };
-
 const RAY_ATTACKS_MASK: [u64; 12] = [
     0x02_00_00_00_00_00_02_00, // WhitePawn
     0x00_00_02_00_02_00_00_00, // BlackPawn
@@ -58,7 +56,6 @@ const RAY_ATTACKS_MASK: [u64; 12] = [
     0x02_02_02_02_02_02_02_02, // WhiteKing
     0x02_02_02_02_02_02_02_02, // BlackKing
 ];
-
 const PIECE_TO_BIT_TABLE: [u8; 16] = [
     //   White,      Black,
     0b00000001, 0b00000010, // Pawn
@@ -69,7 +66,6 @@ const PIECE_TO_BIT_TABLE: [u8; 16] = [
     0b01000000, 0b01000000, // King
     0, 0, 0, 0,
 ];
-
 const RAY_ATTACKERS_MASK: [u8; 64] = {
     let horse = 0b00000100; // knight
     let orth = 0b00110000; // rook and queen
@@ -89,7 +85,6 @@ const RAY_ATTACKERS_MASK: [u8; 64] = {
         horse, bpawn_near, diag, diag, diag, diag, diag, diag, // NW
     ]
 };
-
 const RAY_SLIDERS_MASK: [u8; 64] = {
     let orth = 0b00110000; // rook and queen
     let diag = 0b00101000; // bishop and queen

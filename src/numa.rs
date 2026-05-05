@@ -13,37 +13,14 @@ use std::{
     thread,
 };
 
-pub trait NumaReplicable: Send + Sync + 'static {
-    fn allocate() -> Arc<Self>;
-
-    fn allocate_shared() -> Option<Arc<Self>> {
-        None
-    }
-}
-
-type CpuIndex = usize;
-type NumaIndex = usize;
-
 static SYSTEM_THREADS: LazyLock<CpuIndex> =
     LazyLock::new(|| thread::available_parallelism().map(|x| x.get()).unwrap_or(1).max(1));
-
 #[cfg(all(target_os = "linux", not(target_os = "android")))]
 static PROCESSOR_AFFINITY: LazyLock<BTreeSet<CpuIndex>> = LazyLock::new(get_process_affinity);
 
-#[cfg(all(target_os = "linux", not(target_os = "android")))]
-fn get_process_affinity() -> BTreeSet<CpuIndex> {
-    use libc::{CPU_ISSET, CPU_SETSIZE, CPU_ZERO, cpu_set_t, sched_getaffinity};
+type CpuIndex = usize;
 
-    let mut mask: cpu_set_t = unsafe { std::mem::zeroed() };
-    unsafe { CPU_ZERO(&mut mask) };
-
-    let status = unsafe { sched_getaffinity(0, std::mem::size_of::<cpu_set_t>(), &mut mask as *mut cpu_set_t) };
-    if status != 0 {
-        panic!("sched_getaffinity failed");
-    }
-
-    (0..(CPU_SETSIZE as usize)).filter(|&cpu| unsafe { CPU_ISSET(cpu, &mask) }).collect::<BTreeSet<CpuIndex>>()
-}
+type NumaIndex = usize;
 
 #[derive(Copy, Clone, Default)]
 pub struct NumaReplicatedAccessToken {
@@ -61,16 +38,6 @@ pub struct NumaConfig {
     nodes: Vec<BTreeSet<CpuIndex>>,
     node_by_cpu: BTreeMap<CpuIndex, NumaIndex>,
     highest_cpu_index: CpuIndex,
-}
-
-impl Default for NumaConfig {
-    fn default() -> Self {
-        let mut cfg = Self::empty();
-        for cpu in 0..*SYSTEM_THREADS {
-            cfg.add_cpu_to_node(0, cpu);
-        }
-        cfg
-    }
 }
 
 impl NumaConfig {
@@ -246,38 +213,6 @@ impl NumaConfig {
     }
 }
 
-fn parse_cpu_indices(cpu_ids: &str) -> Vec<usize> {
-    if cpu_ids.is_empty() {
-        return Vec::new();
-    }
-
-    let mut indices = Vec::new();
-    for segment in cpu_ids.split(',').filter(|s| !s.is_empty()) {
-        let parts: Vec<_> = segment.split('-').collect();
-        match parts.len() {
-            1 => indices.push(parts[0].parse::<usize>().unwrap()),
-            2 => {
-                let first = parts[0].parse::<usize>().unwrap();
-                let last = parts[1].parse::<usize>().unwrap();
-                for cpu in first..=last {
-                    indices.push(cpu);
-                }
-            }
-            _ => {}
-        }
-    }
-    indices
-}
-
-fn remove_whitespace(s: String) -> String {
-    s.chars().filter(|c| !c.is_whitespace()).collect()
-}
-
-pub trait NumaReplicatedBase: Send + Sync {
-    fn on_numa_config_changed(&self);
-    fn get_numa_config(&self) -> NumaConfig;
-}
-
 pub struct NumaReplicationContext {
     config: RwLock<NumaConfig>,
     thread_count: AtomicUsize,
@@ -365,6 +300,16 @@ impl<T: NumaReplicable> NumaReplicated<T> {
     }
 }
 
+impl Default for NumaConfig {
+    fn default() -> Self {
+        let mut cfg = Self::empty();
+        for cpu in 0..*SYSTEM_THREADS {
+            cfg.add_cpu_to_node(0, cpu);
+        }
+        cfg
+    }
+}
+
 impl<T: NumaReplicable> NumaReplicatedBase for NumaReplicated<T> {
     fn on_numa_config_changed(&self) {
         self.replicate_instances();
@@ -373,4 +318,59 @@ impl<T: NumaReplicable> NumaReplicatedBase for NumaReplicated<T> {
     fn get_numa_config(&self) -> NumaConfig {
         self.ctx.get_numa_config()
     }
+}
+
+pub trait NumaReplicable: Send + Sync + 'static {
+    fn allocate() -> Arc<Self>;
+
+    fn allocate_shared() -> Option<Arc<Self>> {
+        None
+    }
+}
+
+pub trait NumaReplicatedBase: Send + Sync {
+    fn on_numa_config_changed(&self);
+    fn get_numa_config(&self) -> NumaConfig;
+}
+
+#[cfg(all(target_os = "linux", not(target_os = "android")))]
+fn get_process_affinity() -> BTreeSet<CpuIndex> {
+    use libc::{CPU_ISSET, CPU_SETSIZE, CPU_ZERO, cpu_set_t, sched_getaffinity};
+
+    let mut mask: cpu_set_t = unsafe { std::mem::zeroed() };
+    unsafe { CPU_ZERO(&mut mask) };
+
+    let status = unsafe { sched_getaffinity(0, std::mem::size_of::<cpu_set_t>(), &mut mask as *mut cpu_set_t) };
+    if status != 0 {
+        panic!("sched_getaffinity failed");
+    }
+
+    (0..(CPU_SETSIZE as usize)).filter(|&cpu| unsafe { CPU_ISSET(cpu, &mask) }).collect::<BTreeSet<CpuIndex>>()
+}
+
+fn parse_cpu_indices(cpu_ids: &str) -> Vec<usize> {
+    if cpu_ids.is_empty() {
+        return Vec::new();
+    }
+
+    let mut indices = Vec::new();
+    for segment in cpu_ids.split(',').filter(|s| !s.is_empty()) {
+        let parts: Vec<_> = segment.split('-').collect();
+        match parts.len() {
+            1 => indices.push(parts[0].parse::<usize>().unwrap()),
+            2 => {
+                let first = parts[0].parse::<usize>().unwrap();
+                let last = parts[1].parse::<usize>().unwrap();
+                for cpu in first..=last {
+                    indices.push(cpu);
+                }
+            }
+            _ => {}
+        }
+    }
+    indices
+}
+
+fn remove_whitespace(s: String) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
 }

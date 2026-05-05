@@ -1,6 +1,7 @@
+use crate::thread::ThreadData;
 use std::time::{Duration, Instant};
 
-use crate::thread::ThreadData;
+const TIME_OVERHEAD_MS: u64 = 15;
 
 #[derive(Clone, Debug)]
 pub enum Limits {
@@ -11,8 +12,6 @@ pub enum Limits {
     Fischer(u64, u64),
     Cyclic(u64, u64, u64),
 }
-
-const TIME_OVERHEAD_MS: u64 = 15;
 
 #[derive(Clone)]
 pub struct TimeManager {

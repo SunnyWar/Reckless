@@ -3,12 +3,11 @@ use crate::{
     nnue::INPUT_BUCKETS,
     types::{Bitboard, Color, PieceType},
 };
+pub use psq::PstAccumulator;
+pub use threats::ThreatAccumulator;
 
 pub mod psq;
 pub mod threats;
-
-pub use psq::PstAccumulator;
-pub use threats::ThreatAccumulator;
 
 #[derive(Clone)]
 pub struct AccumulatorCache {

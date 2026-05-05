@@ -1,8 +1,3 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
-};
-
 use crate::{
     board::Board,
     history::{ContinuationCorrectionHistory, ContinuationHistory, CorrectionHistory, NoisyHistory, QuietHistory},
@@ -14,6 +9,10 @@ use crate::{
     transposition::TranspositionTable,
     types::{MAX_MOVES, MAX_PLY, Move, Score, normalize_to_cp},
 };
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
+};
 
 #[repr(align(64))]
 struct AlignedAtomicU64 {
@@ -23,8 +22,6 @@ struct AlignedAtomicU64 {
 pub struct Counter {
     shards: Box<[AlignedAtomicU64]>,
 }
-
-unsafe impl Sync for Counter {}
 
 impl Counter {
     pub fn aggregate(&self) -> u64 {
@@ -46,17 +43,6 @@ impl Counter {
     }
 }
 
-impl Default for Counter {
-    fn default() -> Self {
-        Self {
-            shards: std::iter::from_fn(|| Some(AlignedAtomicU64 { inner: AtomicU64::new(0) }))
-                .take(ThreadPool::available_threads())
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        }
-    }
-}
-
 pub struct Status {
     inner: AtomicUsize,
 }
@@ -74,28 +60,10 @@ impl Status {
     }
 }
 
-impl Clone for Status {
-    fn clone(&self) -> Self {
-        Self { inner: AtomicUsize::new(self.inner.load(Ordering::Relaxed)) }
-    }
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Self { inner: AtomicUsize::new(Self::STOPPED) }
-    }
-}
-
 #[derive(Default)]
 pub struct SharedCorrectionHistory {
     pub pawn: CorrectionHistory,
     pub non_pawn: [CorrectionHistory; 2],
-}
-
-impl NumaReplicable for SharedCorrectionHistory {
-    fn allocate() -> Arc<Self> {
-        Arc::new(Self::default())
-    }
 }
 
 pub struct SharedContext {
@@ -110,26 +78,6 @@ pub struct SharedContext {
     pub history: Arc<NumaReplicated<SharedCorrectionHistory>>,
     pub parameters: Arc<NumaReplicated<ParametersHandle>>,
     pub numa_context: Arc<NumaReplicationContext>,
-}
-
-impl Default for SharedContext {
-    fn default() -> Self {
-        let numa_context = Arc::new(NumaReplicationContext::new(NumaConfig::from_system()));
-
-        Self {
-            tt: TranspositionTable::default(),
-            status: Status::default(),
-            nodes: Counter::default(),
-            tb_hits: Counter::default(),
-            stop_probing_tb: AtomicBool::new(false),
-            root_in_tb: AtomicBool::new(false),
-            soft_stop_votes: AtomicUsize::new(0),
-            best_stats: [const { AtomicU32::new(0) }; MAX_MOVES],
-            history: NumaReplicated::new(numa_context.clone()),
-            parameters: NumaReplicated::new(numa_context.clone()),
-            numa_context,
-        }
-    }
 }
 
 pub struct ThreadData {
@@ -286,24 +234,6 @@ pub struct RootMove {
     pub tb_score: i32,
 }
 
-impl Default for RootMove {
-    fn default() -> Self {
-        Self {
-            mv: Move::NULL,
-            score: -Score::INFINITE,
-            previous_score: -Score::INFINITE,
-            display_score: -Score::INFINITE,
-            upperbound: false,
-            lowerbound: false,
-            sel_depth: 0,
-            nodes: 0,
-            pv: PrincipalVariationTable::default(),
-            tb_rank: 0,
-            tb_score: 0,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct PrincipalVariationTable {
     table: Box<[[Move; MAX_PLY + 1]]>,
@@ -332,6 +262,75 @@ impl PrincipalVariationTable {
         let len = src.len[start_ply].min(MAX_PLY + 1);
         self.len[0] = len;
         self.table[0][..len].copy_from_slice(&src.table[start_ply][..len]);
+    }
+}
+
+unsafe impl Sync for Counter {}
+
+impl Default for Counter {
+    fn default() -> Self {
+        Self {
+            shards: std::iter::from_fn(|| Some(AlignedAtomicU64 { inner: AtomicU64::new(0) }))
+                .take(ThreadPool::available_threads())
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        }
+    }
+}
+
+impl Clone for Status {
+    fn clone(&self) -> Self {
+        Self { inner: AtomicUsize::new(self.inner.load(Ordering::Relaxed)) }
+    }
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Self { inner: AtomicUsize::new(Self::STOPPED) }
+    }
+}
+
+impl NumaReplicable for SharedCorrectionHistory {
+    fn allocate() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+}
+
+impl Default for SharedContext {
+    fn default() -> Self {
+        let numa_context = Arc::new(NumaReplicationContext::new(NumaConfig::from_system()));
+
+        Self {
+            tt: TranspositionTable::default(),
+            status: Status::default(),
+            nodes: Counter::default(),
+            tb_hits: Counter::default(),
+            stop_probing_tb: AtomicBool::new(false),
+            root_in_tb: AtomicBool::new(false),
+            soft_stop_votes: AtomicUsize::new(0),
+            best_stats: [const { AtomicU32::new(0) }; MAX_MOVES],
+            history: NumaReplicated::new(numa_context.clone()),
+            parameters: NumaReplicated::new(numa_context.clone()),
+            numa_context,
+        }
+    }
+}
+
+impl Default for RootMove {
+    fn default() -> Self {
+        Self {
+            mv: Move::NULL,
+            score: -Score::INFINITE,
+            previous_score: -Score::INFINITE,
+            display_score: -Score::INFINITE,
+            upperbound: false,
+            lowerbound: false,
+            sel_depth: 0,
+            nodes: 0,
+            pv: PrincipalVariationTable::default(),
+            tb_rank: 0,
+            tb_score: 0,
+        }
     }
 }
 

@@ -1,17 +1,12 @@
+use crate::types::{Move, Score, is_decisive, is_loss, is_valid, is_win};
 use std::sync::atomic::{AtomicPtr, AtomicU8, AtomicUsize, Ordering};
 
-use crate::types::{Move, Score, is_decisive, is_loss, is_valid, is_win};
-
 pub const DEFAULT_TT_SIZE: usize = 16;
-
 const MEGABYTE: usize = 1024 * 1024;
 const CLUSTER_SIZE: usize = std::mem::size_of::<Cluster>();
-
 const ENTRIES_PER_CLUSTER: usize = 3;
-
 const AGE_CYCLE: u8 = 1 << 5;
 const AGE_MASK: u8 = AGE_CYCLE - 1;
-
 const _: () = assert!(std::mem::size_of::<Cluster>() == 32);
 const _: () = assert!(std::mem::size_of::<InternalEntry>() == 10);
 
@@ -83,6 +78,12 @@ impl InternalEntry {
     }
 }
 
+impl InternalEntry {
+    pub const fn relative_age(&self, tt_age: u8) -> i32 {
+        ((AGE_CYCLE + tt_age - self.flags.age()) & AGE_MASK) as i32
+    }
+}
+
 pub enum TtDepth {}
 
 impl TtDepth {
@@ -98,12 +99,6 @@ impl TtDepth {
     }
 }
 
-impl InternalEntry {
-    pub const fn relative_age(&self, tt_age: u8) -> i32 {
-        ((AGE_CYCLE + tt_age - self.flags.age()) & AGE_MASK) as i32
-    }
-}
-
 #[derive(Clone)]
 #[repr(align(32))]
 struct Cluster {
@@ -116,8 +111,6 @@ pub struct TranspositionTable {
     len: AtomicUsize,
     age: AtomicU8,
 }
-
-unsafe impl Sync for TranspositionTable {}
 
 impl TranspositionTable {
     /// Clears the transposition table. This will remove all entries but keep the allocated memory.
@@ -264,6 +257,25 @@ impl TranspositionTable {
     }
 }
 
+unsafe impl Sync for TranspositionTable {}
+
+impl Default for TranspositionTable {
+    fn default() -> Self {
+        let (ptr, len) = unsafe { allocate(1, DEFAULT_TT_SIZE) };
+        Self {
+            ptr: AtomicPtr::new(ptr),
+            len: AtomicUsize::new(len),
+            age: AtomicU8::new(0),
+        }
+    }
+}
+
+impl Drop for TranspositionTable {
+    fn drop(&mut self) {
+        unsafe { deallocate(self.ptr(), self.len()) };
+    }
+}
+
 const fn index(hash: u64, len: usize) -> usize {
     // Fast hash table index calculation
     // For details, see: https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction
@@ -312,23 +324,6 @@ const fn score_from_tt(score: i32, ply: isize, halfmove_clock: u8) -> i32 {
     }
 
     score
-}
-
-impl Default for TranspositionTable {
-    fn default() -> Self {
-        let (ptr, len) = unsafe { allocate(1, DEFAULT_TT_SIZE) };
-        Self {
-            ptr: AtomicPtr::new(ptr),
-            len: AtomicUsize::new(len),
-            age: AtomicU8::new(0),
-        }
-    }
-}
-
-impl Drop for TranspositionTable {
-    fn drop(&mut self) {
-        unsafe { deallocate(self.ptr(), self.len()) };
-    }
 }
 
 unsafe fn allocate(threads: usize, size_mb: usize) -> (*mut Cluster, usize) {

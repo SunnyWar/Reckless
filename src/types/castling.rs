@@ -1,7 +1,6 @@
-use std::ops::{Index, IndexMut};
-
 use super::Square;
 use crate::{board::Board, types::Color};
+use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone)]
 pub enum CastlingKind {
@@ -22,20 +21,6 @@ impl CastlingKind {
             Self::BlackKingside => Square::G8,
             Self::BlackQueenside => Square::C8,
         }
-    }
-}
-
-impl<T> Index<CastlingKind> for [T] {
-    type Output = T;
-
-    fn index(&self, index: CastlingKind) -> &Self::Output {
-        &self[index as usize]
-    }
-}
-
-impl<T> IndexMut<CastlingKind> for [T] {
-    fn index_mut(&mut self, index: CastlingKind) -> &mut Self::Output {
-        &mut self[index as usize]
     }
 }
 
@@ -84,6 +69,20 @@ impl Castling {
         }
 
         result
+    }
+}
+
+impl<T> Index<CastlingKind> for [T] {
+    type Output = T;
+
+    fn index(&self, index: CastlingKind) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl<T> IndexMut<CastlingKind> for [T] {
+    fn index_mut(&mut self, index: CastlingKind) -> &mut Self::Output {
+        &mut self[index as usize]
     }
 }
 

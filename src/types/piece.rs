@@ -1,9 +1,8 @@
+use super::Color;
 use std::{
     fmt::Display,
     ops::{Index, IndexMut},
 };
-
-use super::Color;
 
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 #[repr(u8)]
@@ -65,6 +64,37 @@ impl Piece {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum PieceType {
+    Pawn,
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
+    King,
+    None,
+}
+
+impl PieceType {
+    pub const NUM: usize = 6;
+
+    pub const fn new(value: usize) -> Self {
+        unsafe { std::mem::transmute(value as u8) }
+    }
+
+    pub const fn value(self) -> i32 {
+        match self {
+            Self::Pawn => 109,
+            Self::Knight => 403,
+            Self::Bishop => 435,
+            Self::Rook => 679,
+            Self::Queen => 1242,
+            Self::King => 0,
+            Self::None => 0,
+        }
+    }
+}
+
 impl TryFrom<char> for Piece {
     type Error = ();
 
@@ -114,37 +144,6 @@ impl<T> Index<Piece> for [T] {
 impl<T> IndexMut<Piece> for [T] {
     fn index_mut(&mut self, index: Piece) -> &mut Self::Output {
         &mut self[index as usize]
-    }
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum PieceType {
-    Pawn,
-    Knight,
-    Bishop,
-    Rook,
-    Queen,
-    King,
-    None,
-}
-
-impl PieceType {
-    pub const NUM: usize = 6;
-
-    pub const fn new(value: usize) -> Self {
-        unsafe { std::mem::transmute(value as u8) }
-    }
-
-    pub const fn value(self) -> i32 {
-        match self {
-            Self::Pawn => 109,
-            Self::Knight => 403,
-            Self::Bishop => 435,
-            Self::Rook => 679,
-            Self::Queen => 1242,
-            Self::King => 0,
-            Self::None => 0,
-        }
     }
 }
 

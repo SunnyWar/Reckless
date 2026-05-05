@@ -3,6 +3,10 @@ use crate::{
     types::{Bitboard, Color, Piece, PieceType, Square},
 };
 
+static mut PIECE_PAIR_LOOKUP: [[PiecePair; 12]; 12] = [[PiecePair { inner: 0 }; 12]; 12];
+static mut PIECE_OFFSET_LOOKUP: [[i32; 64]; 12] = [[0; 64]; 12];
+static mut ATTACK_INDEX_LOOKUP: [[[u8; 64]; 64]; 12] = [[[0; 64]; 64]; 12];
+
 #[derive(Copy, Clone)]
 struct PiecePair {
     // Bit layout:
@@ -25,10 +29,6 @@ impl PiecePair {
         ((self.inner.wrapping_add(below << 30)) & 0x80FFFFFF) as i32 as isize
     }
 }
-
-static mut PIECE_PAIR_LOOKUP: [[PiecePair; 12]; 12] = [[PiecePair { inner: 0 }; 12]; 12];
-static mut PIECE_OFFSET_LOOKUP: [[i32; 64]; 12] = [[0; 64]; 12];
-static mut ATTACK_INDEX_LOOKUP: [[[u8; 64]; 64]; 12] = [[[0; 64]; 64]; 12];
 
 pub fn initialize() {
     #[rustfmt::skip]

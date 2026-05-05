@@ -1,9 +1,3 @@
-mod accumulator;
-
-pub use accumulator::threats::initialize;
-
-use std::sync::Arc;
-
 use crate::{
     board::{Board, BoardObserver},
     nnue::accumulator::{
@@ -13,7 +7,10 @@ use crate::{
     numa::NumaReplicable,
     types::{Color, MAX_PLY, Move, Piece, PieceType, Square},
 };
+pub use accumulator::threats::initialize;
+use std::sync::Arc;
 
+mod accumulator;
 mod forward {
     #[cfg(any(target_feature = "avx2", target_feature = "neon"))]
     mod vectorized;
@@ -25,7 +22,6 @@ mod forward {
     #[cfg(not(any(target_feature = "avx2", target_feature = "neon")))]
     pub use scalar::*;
 }
-
 mod simd {
     #[cfg(target_feature = "avx512f")]
     mod avx512;
@@ -49,24 +45,18 @@ mod simd {
 }
 
 const NETWORK_SCALE: i32 = 380;
-
 const INPUT_BUCKETS: usize = 10;
 const OUTPUT_BUCKETS: usize = 8;
-
 const L1_SIZE: usize = 768;
 const L2_SIZE: usize = 16;
 const L3_SIZE: usize = 32;
-
 const FT_QUANT: i32 = 255;
 const L1_QUANT: i32 = 64;
-
 #[cfg(target_feature = "avx512f")]
 const FT_SHIFT: u32 = 9;
 #[cfg(not(target_feature = "avx512f"))]
 const FT_SHIFT: i32 = 9;
-
 const DEQUANT_MULTIPLIER: f32 = (1 << FT_SHIFT) as f32 / (FT_QUANT * FT_QUANT * L1_QUANT) as f32;
-
 #[rustfmt::skip]
 const INPUT_BUCKETS_LAYOUT: [u8; 64] = [
     0, 1, 2, 3, 3, 2, 1, 0,
@@ -78,7 +68,6 @@ const INPUT_BUCKETS_LAYOUT: [u8; 64] = [
     9, 9, 9, 9, 9, 9, 9, 9,
     9, 9, 9, 9, 9, 9, 9, 9,
 ];
-
 #[rustfmt::skip]
 pub const OUTPUT_BUCKETS_LAYOUT: [usize; 33] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -308,20 +297,6 @@ impl Network {
     }
 }
 
-impl BoardObserver for Network {
-    fn on_piece_move(&mut self, board: &Board, piece: Piece, from: Square, to: Square) {
-        push_threats_on_move(&mut self.threat_stack[self.index], board, piece, from, to);
-    }
-
-    fn on_piece_mutate(&mut self, board: &Board, old_piece: Piece, new_piece: Piece, square: Square) {
-        push_threats_on_mutate(&mut self.threat_stack[self.index], board, old_piece, new_piece, square);
-    }
-
-    fn on_piece_change(&mut self, board: &Board, piece: Piece, square: Square, add: bool) {
-        push_threats_on_change(&mut self.threat_stack[self.index], board, piece, square, add);
-    }
-}
-
 #[repr(C)]
 pub struct Parameters {
     ft_threat_weights: Aligned<[[i8; L1_SIZE]; 66864]>,
@@ -358,12 +333,6 @@ pub struct ParametersHandle {
     inner: ParametersStorage,
 }
 
-#[derive(Clone)]
-enum ParametersStorage {
-    Embedded(&'static Parameters),
-    Owned(Arc<Parameters>),
-}
-
 impl ParametersHandle {
     fn embedded() -> Self {
         Self { inner: ParametersStorage::Embedded(Parameters::embedded()) }
@@ -371,6 +340,38 @@ impl ParametersHandle {
 
     const fn owned(parameters: Arc<Parameters>) -> Self {
         Self { inner: ParametersStorage::Owned(parameters) }
+    }
+}
+
+#[derive(Clone)]
+enum ParametersStorage {
+    Embedded(&'static Parameters),
+    Owned(Arc<Parameters>),
+}
+
+#[repr(align(64))]
+#[derive(Copy, Clone)]
+struct Aligned<T> {
+    data: T,
+}
+
+impl<T> Aligned<T> {
+    pub const fn new(data: T) -> Self {
+        Self { data }
+    }
+}
+
+impl BoardObserver for Network {
+    fn on_piece_move(&mut self, board: &Board, piece: Piece, from: Square, to: Square) {
+        push_threats_on_move(&mut self.threat_stack[self.index], board, piece, from, to);
+    }
+
+    fn on_piece_mutate(&mut self, board: &Board, old_piece: Piece, new_piece: Piece, square: Square) {
+        push_threats_on_mutate(&mut self.threat_stack[self.index], board, old_piece, new_piece, square);
+    }
+
+    fn on_piece_change(&mut self, board: &Board, piece: Piece, square: Square, add: bool) {
+        push_threats_on_change(&mut self.threat_stack[self.index], board, piece, square, add);
     }
 }
 
@@ -392,18 +393,6 @@ impl NumaReplicable for ParametersHandle {
 
     fn allocate_shared() -> Option<Arc<Self>> {
         Arc::new(Self::embedded()).into()
-    }
-}
-
-#[repr(align(64))]
-#[derive(Copy, Clone)]
-struct Aligned<T> {
-    data: T,
-}
-
-impl<T> Aligned<T> {
-    pub const fn new(data: T) -> Self {
-        Self { data }
     }
 }
 

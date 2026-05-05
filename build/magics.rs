@@ -1,8 +1,4 @@
 #[rustfmt::skip]
-#[derive(Debug)]
-pub struct MagicEntry { pub mask: u64, pub magic: u64, pub shift: u32, pub offset: usize }
-
-#[rustfmt::skip]
 pub const ROOK_MAGICS: [MagicEntry; 64] = [
     MagicEntry { mask: 0x000101010101017E, magic: 0x1080018022704002, shift: 52, offset: 0 },
     MagicEntry { mask: 0x000202020202027C, magic: 0x8B4000A005900840, shift: 53, offset: 4096 },
@@ -69,9 +65,7 @@ pub const ROOK_MAGICS: [MagicEntry; 64] = [
     MagicEntry { mask: 0x3E40404040404000, magic: 0x1040409008410204, shift: 53, offset: 96256 },
     MagicEntry { mask: 0x7E80808080808000, magic: 0x0800408849040022, shift: 52, offset: 98304 },
 ];
-
 pub const ROOK_MAP_SIZE: usize = 102400;
-
 #[rustfmt::skip]
 pub const BISHOP_MAGICS: [MagicEntry; 64] = [
     MagicEntry { mask: 0x0040201008040200, magic: 0x4041620809010010, shift: 58, offset: 0 },
@@ -139,5 +133,8 @@ pub const BISHOP_MAGICS: [MagicEntry; 64] = [
     MagicEntry { mask: 0x0020100804020000, magic: 0x0200850404280200, shift: 59, offset: 5152 },
     MagicEntry { mask: 0x0040201008040200, magic: 0x0602040414084202, shift: 58, offset: 5184 },
 ];
-
 pub const BISHOP_MAP_SIZE: usize = 5248;
+
+#[rustfmt::skip]
+#[derive(Debug)]
+pub struct MagicEntry { pub mask: u64, pub magic: u64, pub shift: u32, pub offset: usize }

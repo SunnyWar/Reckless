@@ -1,7 +1,6 @@
-use std::mem;
-
 use super::{PieceType, Square};
 use crate::board::Board;
+use std::mem;
 
 /// Represents a chess move containing the from and to squares, as well as flags for special moves.
 /// The information encoded as a 16-bit integer, 6 bits for the from/to square and 4 bits for the flags.
@@ -9,30 +8,6 @@ use crate::board::Board;
 /// See [Encoding Moves](https://www.chessprogramming.org/Encoding_Moves) for more information.
 #[derive(Copy, Clone, Eq, Hash, PartialEq, Debug)]
 pub struct Move(u16);
-
-/// Represents a typed enumeration of move kinds, which is the 4-bit part of the encoded bit move.
-/// 
-/// See [From-To Based](https://www.chessprogramming.org/Encoding_Moves#From-To_Based) for more information.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[rustfmt::skip]
-pub enum MoveKind {
-    Normal            = 0b0000,
-    DoublePush        = 0b0001,
-    Castling          = 0b0010,
-
-    Capture           = 0b0100,
-    EnPassant         = 0b0101,
-
-    PromotionN        = 0b1000,
-    PromotionB        = 0b1001,
-    PromotionR        = 0b1010,
-    PromotionQ        = 0b1011,
-
-    PromotionCaptureN = 0b1100,
-    PromotionCaptureB = 0b1101,
-    PromotionCaptureR = 0b1110,
-    PromotionCaptureQ = 0b1111,
-}
 
 impl Move {
     pub const NULL: Self = Self(0);
@@ -137,4 +112,28 @@ impl Move {
 
         output
     }
+}
+
+/// Represents a typed enumeration of move kinds, which is the 4-bit part of the encoded bit move.
+/// 
+/// See [From-To Based](https://www.chessprogramming.org/Encoding_Moves#From-To_Based) for more information.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[rustfmt::skip]
+pub enum MoveKind {
+    Normal            = 0b0000,
+    DoublePush        = 0b0001,
+    Castling          = 0b0010,
+
+    Capture           = 0b0100,
+    EnPassant         = 0b0101,
+
+    PromotionN        = 0b1000,
+    PromotionB        = 0b1001,
+    PromotionR        = 0b1010,
+    PromotionQ        = 0b1011,
+
+    PromotionCaptureN = 0b1100,
+    PromotionCaptureB = 0b1101,
+    PromotionCaptureR = 0b1110,
+    PromotionCaptureQ = 0b1111,
 }

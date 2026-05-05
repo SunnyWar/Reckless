@@ -1,5 +1,5 @@
-use std::sync::atomic::Ordering;
-
+#[allow(unused_imports)]
+use crate::misc::{dbg_hit, dbg_stats};
 use crate::{
     evaluation::correct_eval,
     movepick::{MovePicker, Stage},
@@ -12,15 +12,12 @@ use crate::{
         mate_in, mated_in,
     },
 };
-
 #[cfg(feature = "syzygy")]
 use crate::{
     tb,
     types::{tb_loss_in, tb_win_in},
 };
-
-#[allow(unused_imports)]
-use crate::misc::{dbg_hit, dbg_stats};
+use std::sync::atomic::Ordering;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Report {
@@ -29,27 +26,30 @@ pub enum Report {
     Full,
 }
 
-pub trait NodeType {
-    const PV: bool;
-    const ROOT: bool;
-}
-
 struct Root;
+
+struct PV;
+
+struct NonPV;
+
 impl NodeType for Root {
     const PV: bool = true;
     const ROOT: bool = true;
 }
 
-struct PV;
 impl NodeType for PV {
     const PV: bool = true;
     const ROOT: bool = false;
 }
 
-struct NonPV;
 impl NodeType for NonPV {
     const PV: bool = false;
     const ROOT: bool = false;
+}
+
+pub trait NodeType {
+    const PV: bool;
+    const ROOT: bool;
 }
 
 pub fn start(td: &mut ThreadData, report: Report, thread_count: usize) {

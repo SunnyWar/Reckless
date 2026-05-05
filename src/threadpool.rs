@@ -1,13 +1,3 @@
-use std::{
-    ops::Index,
-    sync::{
-        Arc, Condvar, Mutex,
-        atomic::Ordering,
-        mpsc::{Receiver, SyncSender},
-    },
-    thread::Scope,
-};
-
 #[cfg(feature = "syzygy")]
 use crate::tb;
 use crate::{
@@ -16,6 +6,15 @@ use crate::{
     search::{self, Report},
     thread::{RootMove, SharedContext, Status, ThreadData},
     time::TimeManager,
+};
+use std::{
+    ops::Index,
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::Ordering,
+        mpsc::{Receiver, SyncSender},
+    },
+    thread::Scope,
 };
 
 pub struct ThreadPool {
@@ -147,14 +146,6 @@ impl ThreadPool {
     }
 }
 
-impl Index<usize> for ThreadPool {
-    type Output = ThreadData;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.vector[index]
-    }
-}
-
 pub struct WorkerThread {
     handle: std::thread::JoinHandle<()>,
     comms: WorkSender,
@@ -182,16 +173,6 @@ struct WorkReceiver {
     completion_signal: Arc<(Mutex<bool>, Condvar)>,
 }
 
-fn make_work_channel() -> (WorkSender, WorkReceiver) {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(0);
-    let completion_signal = Arc::new((Mutex::new(false), Condvar::new()));
-
-    (
-        WorkSender { sender, completion_signal: Arc::clone(&completion_signal) },
-        WorkReceiver { receiver, completion_signal },
-    )
-}
-
 pub struct ReceiverHandle<'scope> {
     completion_signal: &'scope Arc<(Mutex<bool>, Condvar)>,
     received: bool,
@@ -209,17 +190,19 @@ impl ReceiverHandle<'_> {
     }
 }
 
+impl Index<usize> for ThreadPool {
+    type Output = ThreadData;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.vector[index]
+    }
+}
+
 impl Drop for ReceiverHandle<'_> {
     fn drop(&mut self) {
         // When the receiver handle is dropped, we ensure that we have received something.
         assert!(self.received, "ReceiverHandle was dropped without receiving a value");
     }
-}
-
-pub trait ScopeExt<'scope, 'env> {
-    fn spawn_into<F>(&'scope self, f: F, comms: &'scope WorkerThread) -> ReceiverHandle<'scope>
-    where
-        F: FnOnce() + Send + 'scope;
 }
 
 impl<'scope, 'env> ScopeExt<'scope, 'env> for Scope<'scope, 'env> {
@@ -247,6 +230,22 @@ impl<'scope, 'env> ScopeExt<'scope, 'env> for Scope<'scope, 'env> {
             received: false,
         }
     }
+}
+
+pub trait ScopeExt<'scope, 'env> {
+    fn spawn_into<F>(&'scope self, f: F, comms: &'scope WorkerThread) -> ReceiverHandle<'scope>
+    where
+        F: FnOnce() + Send + 'scope;
+}
+
+fn make_work_channel() -> (WorkSender, WorkReceiver) {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+    let completion_signal = Arc::new((Mutex::new(false), Condvar::new()));
+
+    (
+        WorkSender { sender, completion_signal: Arc::clone(&completion_signal) },
+        WorkReceiver { receiver, completion_signal },
+    )
 }
 
 fn make_worker_thread() -> WorkerThread {
