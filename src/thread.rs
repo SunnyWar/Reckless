@@ -311,7 +311,7 @@ pub struct PrincipalVariationTable {
 }
 
 impl PrincipalVariationTable {
-    pub fn line(&self) -> &[Move] {
+    fn line(&self) -> &[Move] {
         &self.table[0][..self.len[0]]
     }
 

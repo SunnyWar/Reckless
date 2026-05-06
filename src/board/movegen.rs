@@ -39,7 +39,7 @@ impl super::Board {
         list
     }
 
-    pub fn append_all_moves(&self, list: &mut MoveList) {
+    fn append_all_moves(&self, list: &mut MoveList) {
         self.append_noisy_moves(list);
         self.append_quiet_moves(list);
     }

@@ -16,7 +16,7 @@ pub enum Color {
 }
 
 // Only step east/west one step at a time
-pub fn shift_dir(mut bb: u64, dir: i8) -> u64 {
+fn shift_dir(mut bb: u64, dir: i8) -> u64 {
     let file_offset = dir & 0x7;
 
     if file_offset == FILE_B {
@@ -28,7 +28,7 @@ pub fn shift_dir(mut bb: u64, dir: i8) -> u64 {
     if dir < 0 { bb >> -dir } else { bb << dir }
 }
 
-pub fn shift_dirs(bb: u64, dirs: &[i8]) -> u64 {
+fn shift_dirs(bb: u64, dirs: &[i8]) -> u64 {
     let mut targets = 0;
     for dir in dirs {
         targets |= shift_dir(bb, *dir);

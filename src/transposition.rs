@@ -51,7 +51,7 @@ impl Flags {
         (self.data & (1 << 2)) != 0
     }
 
-    pub const fn age(self) -> u8 {
+    const fn age(self) -> u8 {
         self.data >> 3
     }
 }
@@ -99,7 +99,7 @@ impl TtDepth {
 }
 
 impl InternalEntry {
-    pub const fn relative_age(&self, tt_age: u8) -> i32 {
+    const fn relative_age(&self, tt_age: u8) -> i32 {
         ((AGE_CYCLE + tt_age - self.flags.age()) & AGE_MASK) as i32
     }
 }

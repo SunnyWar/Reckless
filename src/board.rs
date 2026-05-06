@@ -180,7 +180,7 @@ impl Board {
         self.colors(side) & self.pieces(piece_type)
     }
 
-    pub fn colored_pieces2(&self, side: Color, pt1: PieceType, pt2: PieceType) -> Bitboard {
+    fn colored_pieces2(&self, side: Color, pt1: PieceType, pt2: PieceType) -> Bitboard {
         self.colors(side) & (self.pieces(pt1) | self.pieces(pt2))
     }
 
@@ -233,7 +233,7 @@ impl Board {
     }
 
     /// Checks for a material draw
-    pub fn draw_by_material(&self) -> bool {
+    fn draw_by_material(&self) -> bool {
         let stm = self.side_to_move();
         if (self.pieces(PieceType::Pawn) | self.pieces(PieceType::Rook) | self.pieces(PieceType::Queen)) != Bitboard(0)
         {
@@ -259,11 +259,11 @@ impl Board {
 
     /// Checks if the position has repeated once earlier but strictly
     /// after the root, or repeated twice before or at the root.
-    pub const fn draw_by_repetition(&self, ply: i32) -> bool {
+    const fn draw_by_repetition(&self, ply: i32) -> bool {
         self.state.repetition != 0 && self.state.repetition < ply
     }
 
-    pub fn draw_by_fifty_move_rule(&self) -> bool {
+    fn draw_by_fifty_move_rule(&self) -> bool {
         self.halfmove_clock() >= 100 && (!self.in_check() || self.has_legal_moves())
     }
 

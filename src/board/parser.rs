@@ -156,7 +156,7 @@ impl Board {
         fen
     }
 
-    pub fn to_ascii(&self) -> String {
+    fn to_ascii(&self) -> String {
         let mut ascii = String::new();
         ascii.push_str("+---+---+---+---+---+---+---+---+\n");
         for rank in (0..8).rev() {

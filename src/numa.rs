@@ -95,11 +95,11 @@ impl NumaConfig {
         }
     }
 
-    pub const fn num_numa_nodes(&self) -> NumaIndex {
+    const fn num_numa_nodes(&self) -> NumaIndex {
         self.nodes.len()
     }
 
-    pub const fn requires_memory_replication(&self) -> bool {
+    const fn requires_memory_replication(&self) -> bool {
         self.nodes.len() > 1
     }
 
@@ -171,7 +171,7 @@ impl NumaConfig {
         NumaReplicatedAccessToken::new(node)
     }
 
-    pub fn execute_on_numa_node<F: FnOnce() + Send + 'static>(&self, n: NumaIndex, f: F) {
+    fn execute_on_numa_node<F: FnOnce() + Send + 'static>(&self, n: NumaIndex, f: F) {
         let cfg = self.clone();
         let handle = thread::spawn(move || {
             cfg.bind_current_thread_to_numa_node(n);
@@ -293,7 +293,7 @@ impl NumaReplicationContext {
         }
     }
 
-    pub fn attach(&self, obj: Arc<dyn NumaReplicatedBase>) {
+    fn attach(&self, obj: Arc<dyn NumaReplicatedBase>) {
         self.tracked.lock().unwrap().push(obj);
     }
 
@@ -313,7 +313,7 @@ impl NumaReplicationContext {
         }
     }
 
-    pub fn get_thread_count(&self) -> usize {
+    fn get_thread_count(&self) -> usize {
         self.thread_count.load(Ordering::Acquire)
     }
 }

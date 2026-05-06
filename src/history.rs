@@ -27,12 +27,12 @@ impl QuietHistoryEntry {
         self.buckets[from_threatened][to_threatened]
     }
 
-    pub fn update_factorizer(&mut self, bonus: i32) {
+    fn update_factorizer(&mut self, bonus: i32) {
         let entry = &mut self.factorizer;
         apply_bonus::<{ Self::MAX_FACTORIZER }>(entry, bonus);
     }
 
-    pub fn update_bucket(&mut self, threats: Bitboard, mv: Move, bonus: i32) {
+    fn update_bucket(&mut self, threats: Bitboard, mv: Move, bonus: i32) {
         let from_threatened = threats.contains(mv.from()) as usize;
         let to_threatened = threats.contains(mv.to()) as usize;
 
@@ -79,12 +79,12 @@ impl NoisyHistoryEntry {
         self.buckets[captured][threatened]
     }
 
-    pub fn update_factorizer(&mut self, bonus: i32) {
+    fn update_factorizer(&mut self, bonus: i32) {
         let entry = &mut self.factorizer;
         apply_bonus::<{ Self::MAX_FACTORIZER }>(entry, bonus);
     }
 
-    pub fn update_bucket(&mut self, threats: Bitboard, sq: Square, captured: PieceType, bonus: i32) {
+    fn update_bucket(&mut self, threats: Bitboard, sq: Square, captured: PieceType, bonus: i32) {
         let threatened = threats.contains(sq) as usize;
         let entry = &mut self.buckets[captured][threatened];
         apply_bonus::<{ Self::MAX_BUCKET }>(entry, bonus);

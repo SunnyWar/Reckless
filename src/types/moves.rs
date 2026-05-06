@@ -49,10 +49,6 @@ impl Move {
         Square::new(((self.0 >> 6) & 0b0011_1111) as u8)
     }
 
-    pub const fn encoded(self) -> usize {
-        (self.0 & 0b0000_1111_1111_1111) as usize
-    }
-
     pub const fn kind(self) -> MoveKind {
         unsafe { mem::transmute((self.0 >> 12) as u8) }
     }

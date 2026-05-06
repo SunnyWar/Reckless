@@ -66,7 +66,7 @@ impl Square {
         file_dist.max(rank_dist)
     }
 
-    pub const fn flip_rank(self) -> Self {
+    const fn flip_rank(self) -> Self {
         Self::new(self as u8 ^ 56)
     }
 
