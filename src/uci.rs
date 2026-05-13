@@ -1,5 +1,7 @@
+use phf::phf_map;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::io::BufRead;
 use std::sync::Arc;
 
 use crate::{
@@ -19,6 +21,12 @@ enum Mode {
     Uci,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum HandlerResult {
+    Continue,
+    Quit,
+}
+
 struct Settings {
     frc: bool,
     multi_pv: usize,
@@ -36,6 +44,140 @@ impl Default for Settings {
         }
     }
 }
+
+struct HandlerContext<'a> {
+    board: &'a mut Board,
+    threads: &'a mut ThreadPool,
+    settings: &'a mut Settings,
+    shared: &'a Arc<SharedContext>,
+    mode: &'a mut Mode,
+}
+
+impl<'a> HandlerContext<'a> {
+    fn is_uci(&self) -> bool {
+        matches!(*self.mode, Mode::Uci)
+    }
+}
+
+type Handler = fn(&mut HandlerContext, &[&str]) -> HandlerResult;
+
+fn handle_uci(ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    uci();
+    *ctx.mode = Mode::Uci;
+    HandlerResult::Continue
+}
+
+fn handle_isready(_ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    println!("readyok");
+    HandlerResult::Continue
+}
+
+fn handle_go(ctx: &mut HandlerContext, tokens: &[&str]) -> HandlerResult {
+    go(ctx.threads, ctx.settings, ctx.board, ctx.shared, tokens);
+    HandlerResult::Continue
+}
+
+fn handle_position(ctx: &mut HandlerContext, tokens: &[&str]) -> HandlerResult {
+    position(ctx.board, ctx.settings, tokens);
+    HandlerResult::Continue
+}
+
+fn handle_setoption(ctx: &mut HandlerContext, tokens: &[&str]) -> HandlerResult {
+    set_option(ctx.threads, ctx.settings, ctx.shared, tokens);
+    HandlerResult::Continue
+}
+
+fn handle_ucinewgame(ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    reset(ctx.threads, ctx.shared);
+    HandlerResult::Continue
+}
+
+fn handle_stop(ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    ctx.shared.status.set(Status::STOPPED);
+    HandlerResult::Continue
+}
+
+fn handle_quit(_ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    HandlerResult::Quit
+}
+
+fn handle_compiler(_ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    compiler();
+    HandlerResult::Continue
+}
+
+fn handle_eval(ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    eval(ctx.threads.main_thread(), ctx.board);
+    HandlerResult::Continue
+}
+
+fn handle_d(ctx: &mut HandlerContext, _tokens: &[&str]) -> HandlerResult {
+    println!("{}", ctx.board);
+    HandlerResult::Continue
+}
+
+fn handle_bench(ctx: &mut HandlerContext, args: &[&str]) -> HandlerResult {
+    if ctx.is_uci() {
+        tools::bench::<true>(args);
+    } else {
+        tools::bench::<false>(args);
+    }
+    HandlerResult::Continue
+}
+
+fn handle_speedtest(_ctx: &mut HandlerContext, args: &[&str]) -> HandlerResult {
+    tools::speedtest(args);
+    HandlerResult::Continue
+}
+
+fn handle_perft(ctx: &mut HandlerContext, args: &[&str]) -> HandlerResult {
+    if let Some(depth) = args.first().and_then(|s| s.parse::<usize>().ok()) {
+        tools::perft(depth, ctx.board);
+    } else {
+        eprintln!("Usage: perft <depth>");
+    }
+    HandlerResult::Continue
+}
+
+fn handle_simpleperft(ctx: &mut HandlerContext, args: &[&str]) -> HandlerResult {
+    if let Some(depth) = args.first().and_then(|s| s.parse::<usize>().ok()) {
+        tools::simple_perft(depth, ctx.board);
+    } else {
+        eprintln!("Usage: simpleperft <depth>");
+    }
+    HandlerResult::Continue
+}
+
+fn handle_islegalperft(ctx: &mut HandlerContext, args: &[&str]) -> HandlerResult {
+    if let Some(depth) = args.first().and_then(|s| s.parse::<usize>().ok()) {
+        tools::is_legal_perft(depth, ctx.board);
+    } else {
+        eprintln!("Usage: islegalperft <depth>");
+    }
+    HandlerResult::Continue
+}
+
+/// All commands: UCI protocol + debugging tools
+static COMMANDS: phf::Map<&'static str, Handler> = phf_map! {
+    // UCI protocol commands
+    "uci" => handle_uci,
+    "isready" => handle_isready,
+    "go" => handle_go,
+    "position" => handle_position,
+    "setoption" => handle_setoption,
+    "ucinewgame" => handle_ucinewgame,
+    "stop" => handle_stop,
+    "quit" => handle_quit,
+    // Debugging/tool commands
+    "compiler" => handle_compiler,
+    "eval" => handle_eval,
+    "d" => handle_d,
+    "bench" => handle_bench,
+    "speedtest" => handle_speedtest,
+    "perft" => handle_perft,
+    "simpleperft" => handle_simpleperft,
+    "islegalperft" => handle_islegalperft,
+};
 
 pub fn message_loop(mut buffer: VecDeque<String>) {
     let shared = Arc::new(SharedContext::default());
@@ -60,50 +202,35 @@ pub fn message_loop(mut buffer: VecDeque<String>) {
         };
 
         let tokens = message.split_whitespace().collect::<Vec<_>>();
-        match tokens.as_slice() {
-            ["uci"] => {
-                uci();
-                mode = Mode::Uci;
+
+        // Skip empty lines
+        if !tokens.is_empty() {
+            let cmd = tokens[0];
+            let args = &tokens[1..];
+
+            // Try to dispatch command
+            let handler = COMMANDS.get(cmd);
+
+            if let Some(handler) = handler {
+                let mut ctx = HandlerContext {
+                    board: &mut board,
+                    threads: &mut threads,
+                    settings: &mut settings,
+                    shared: &shared,
+                    mode: &mut mode,
+                };
+
+                match handler(&mut ctx, args) {
+                    HandlerResult::Continue => {}
+                    HandlerResult::Quit => break,
+                }
+            } else {
+                eprintln!("Unknown command: '{}'", message.trim_end());
             }
-
-            ["isready"] => println!("readyok"),
-
-            ["go", tokens @ ..] => go(&mut threads, &settings, &board, &shared, tokens),
-            ["position", tokens @ ..] => position(&mut board, &settings, tokens),
-            ["setoption", tokens @ ..] => set_option(&mut threads, &mut settings, &shared, tokens),
-            ["ucinewgame"] => reset(&mut threads, &shared),
-
-            ["stop"] => shared.status.set(Status::STOPPED),
-            ["quit"] => {
-                drop(threads);
-                break;
-            }
-
-            // Non-UCI commands
-            ["compiler"] => compiler(),
-            ["eval"] => eval(threads.main_thread(), &board),
-            ["d"] => println!("{}", board),
-            ["bench", args @ ..] => match mode {
-                Mode::Uci => tools::bench::<true>(args),
-                Mode::Cli => tools::bench::<false>(args),
-            },
-            ["speedtest", args @ ..] => tools::speedtest(args),
-            ["perft", depth] => tools::perft(depth.parse().unwrap(), &mut board),
-            ["perft"] => eprintln!("Usage: perft <depth>"),
-            ["simpleperft", depth] => tools::simple_perft(depth.parse().unwrap(), &mut board),
-            ["simpleperft"] => eprintln!("Usage: simpleperft <depth>"),
-            ["islegalperft", depth] => tools::is_legal_perft(depth.parse().unwrap(), &mut board),
-            ["islegalperft"] => eprintln!("Usage: islegalperft <depth>"),
-
-            // Ignore empty lines
-            [] => (),
-
-            _ => eprintln!("Unknown command: '{}'", message.trim_end()),
         }
 
         // Auto-exit after last CLI command
         if matches!(mode, Mode::Cli) && buffer.is_empty() {
-            drop(threads);
             break;
         }
     }
@@ -113,22 +240,25 @@ fn spawn_listener(shared: Arc<SharedContext>) -> std::sync::mpsc::Receiver<Strin
     let (tx, rx) = std::sync::mpsc::channel();
 
     std::thread::spawn(move || {
-        loop {
-            let mut message = String::new();
-
-            if std::io::stdin().read_line(&mut message).unwrap() == 0 {
-                // EOF received
-                if shared.status.get() != Status::RUNNING {
-                    let _ = tx.send("quit".to_string());
+        let stdin = std::io::stdin();
+        for line_result in stdin.lock().lines() {
+            let message = match line_result {
+                Ok(msg) => msg,
+                Err(_) => {
+                    // EOF or error: send quit if not running
+                    if shared.status.get() != Status::RUNNING {
+                        let _ = tx.send("quit".into());
+                    }
+                    break;
                 }
-            }
+            };
 
             match message.trim_end() {
                 "isready" => println!("readyok"),
                 "stop" => shared.status.set(Status::STOPPED),
                 "quit" => {
                     shared.status.set(Status::STOPPED);
-                    let _ = tx.send("quit".to_string());
+                    let _ = tx.send("quit".into());
                     break;
                 }
                 _ => {
@@ -183,6 +313,62 @@ fn reset(threads: &mut ThreadPool, shared: &Arc<SharedContext>) {
     }
 }
 
+impl ThreadData {
+    fn vote_value(&self, min_score: i32) -> i32 {
+        (self.root_moves[0].score - min_score + 10) * self.completed_depth
+    }
+}
+
+fn compute_votes(threads: &ThreadPool, min_score: i32) -> HashMap<Move, i32> {
+    let mut votes: HashMap<Move, i32> = HashMap::new();
+    for result in threads.iter() {
+        *votes.entry(result.root_moves[0].mv).or_default() += result.vote_value(min_score);
+    }
+    votes
+}
+
+fn select_best_thread(threads: &ThreadPool, votes: &HashMap<Move, i32>, min_score: i32) -> usize {
+    let mut best = 0;
+
+    if !matches!(threads[best].time_manager.limits(), Limits::Depth(_)) && threads[0].multi_pv == 1 {
+        for current in 1..threads.len() {
+            let is_better_candidate = || -> bool {
+                let best_td = &threads[best];
+                let current_td = &threads[current];
+
+                if is_win(best_td.root_moves[0].score) {
+                    return current_td.root_moves[0].score > best_td.root_moves[0].score;
+                }
+
+                if current_td.root_moves[0].score != -Score::INFINITE
+                    && best_td.root_moves[0].score != -Score::INFINITE
+                    && is_loss(best_td.root_moves[0].score)
+                {
+                    return current_td.root_moves[0].score < best_td.root_moves[0].score;
+                }
+
+                if current_td.root_moves[0].score != -Score::INFINITE && is_decisive(current_td.root_moves[0].score) {
+                    return true;
+                }
+
+                let best_vote = votes[&best_td.root_moves[0].mv];
+                let current_vote = votes[&current_td.root_moves[0].mv];
+
+                !is_loss(current_td.root_moves[0].score)
+                    && (current_vote > best_vote
+                        || (current_vote == best_vote
+                            && current_td.vote_value(min_score) > best_td.vote_value(min_score)))
+            };
+
+            if is_better_candidate() {
+                best = current;
+            }
+        }
+    }
+
+    best
+}
+
 fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc<SharedContext>, tokens: &[&str]) {
     let limits = parse_limits(board.side_to_move(), tokens);
     let time_manager = TimeManager::new(limits, board.fullmove_number(), settings.move_overhead);
@@ -195,49 +381,8 @@ fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc
     }
 
     let min_score = threads.iter().map(|v| v.root_moves[0].score).min().unwrap();
-    let vote_value = |td: &ThreadData| (td.root_moves[0].score - min_score + 10) * td.completed_depth;
-
-    let mut votes: HashMap<&Move, i32> = HashMap::new();
-    for result in threads.iter() {
-        *votes.entry(&result.root_moves[0].mv).or_default() += vote_value(result);
-    }
-
-    let mut best = 0;
-
-    if !matches!(threads[best].time_manager.limits(), Limits::Depth(_)) && threads[0].multi_pv == 1 {
-        for current in 1..threads.len() {
-            let is_better_candidate = || -> bool {
-                let best = &threads[best];
-                let current = &threads[current];
-
-                if is_win(best.root_moves[0].score) {
-                    return current.root_moves[0].score > best.root_moves[0].score;
-                }
-
-                if current.root_moves[0].score != -Score::INFINITE
-                    && best.root_moves[0].score != -Score::INFINITE
-                    && is_loss(best.root_moves[0].score)
-                {
-                    return current.root_moves[0].score < best.root_moves[0].score;
-                }
-
-                if current.root_moves[0].score != -Score::INFINITE && is_decisive(current.root_moves[0].score) {
-                    return true;
-                }
-
-                let best_vote = votes[&best.root_moves[0].mv];
-                let current_vote = votes[&current.root_moves[0].mv];
-
-                !is_loss(current.root_moves[0].score)
-                    && (current_vote > best_vote
-                        || (current_vote == best_vote && vote_value(current) > vote_value(best)))
-            };
-
-            if is_better_candidate() {
-                best = current;
-            }
-        }
-    }
+    let votes = compute_votes(threads, min_score);
+    let best = select_best_thread(threads, &votes, min_score);
 
     if best != 0 {
         threads[best].print_uci_info(threads[best].completed_depth);
@@ -247,36 +392,41 @@ fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc
     crate::misc::dbg_print();
 }
 
-fn position(board: &mut Board, settings: &Settings, mut tokens: &[&str]) {
-    while !tokens.is_empty() {
-        match tokens {
-            ["startpos", rest @ ..] => {
+fn position(board: &mut Board, settings: &Settings, tokens: &[&str]) {
+    let mut i = 0;
+    while i < tokens.len() {
+        match tokens[i] {
+            "startpos" => {
                 *board = Board::starting_position();
-                tokens = rest;
+                i += 1;
             }
-            ["fen", rest @ ..] => {
-                match Board::from_fen(&rest.join(" ")) {
+            "fen" => {
+                let fen_tokens = &tokens[i + 1..];
+                let end = fen_tokens.iter().position(|&t| t == "moves").unwrap_or(fen_tokens.len());
+                let fen = fen_tokens[..end].join(" ");
+                match Board::from_fen(&fen) {
                     Ok(b) => *board = b,
                     Err(e) => eprintln!("Invalid FEN: {e:?}"),
                 }
                 board.set_frc(settings.frc);
-                tokens = rest;
+                // Skip past FEN tokens
+                i += 1 + end;
             }
-            ["moves", rest @ ..] => {
-                for uci_move in rest {
+            "moves" => {
+                for uci_move in &tokens[i + 1..] {
                     make_uci_move(board, uci_move);
                 }
                 break;
             }
-            _ => tokens = &tokens[1..],
+            _ => i += 1,
         }
     }
 }
 
 fn make_uci_move(board: &mut Board, uci_move: &str) {
     let moves = board.generate_all_moves();
-    if let Some(mv) = moves.iter().map(|entry| entry.mv).find(|mv| mv.to_uci(board) == uci_move) {
-        board.make_move(mv, &mut NullBoardObserver);
+    if let Some(entry) = moves.iter().find(|e| e.mv.to_uci(board) == uci_move) {
+        board.make_move(entry.mv, &mut NullBoardObserver);
         board.advance_fullmove_counter();
     }
 }
@@ -403,13 +553,15 @@ fn parse_limits(color: Color, tokens: &[&str]) -> Limits {
                 "depth" if value > 0 => return Limits::Depth(value as i32),
                 "movetime" if value > 0 => return Limits::Time(value),
                 "nodes" if value > 0 => return Limits::Nodes(value),
+                _ => {}
+            }
 
+            match name {
                 "wtime" if Color::White == color => main = Some(value),
                 "btime" if Color::Black == color => main = Some(value),
                 "winc" if Color::White == color => inc = Some(value),
                 "binc" if Color::Black == color => inc = Some(value),
                 "movestogo" => moves = Some(value),
-
                 _ => continue,
             }
         }
