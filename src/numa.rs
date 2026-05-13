@@ -2,6 +2,8 @@
 #![allow(unused_mut)]
 #![allow(unused_imports)]
 
+/// Cross-platform NUMA configuration and thread binding.
+/// Windows support is implemented in the `windows` submodule.
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -12,6 +14,9 @@ use std::{
     },
     thread,
 };
+
+#[cfg(target_os = "windows")]
+mod windows;
 
 pub trait NumaReplicable: Send + Sync + 'static {
     fn allocate() -> Arc<Self>;
@@ -56,11 +61,26 @@ impl NumaReplicatedAccessToken {
     }
 }
 
-#[derive(Clone)]
 pub struct NumaConfig {
     nodes: Vec<BTreeSet<CpuIndex>>,
     node_by_cpu: BTreeMap<CpuIndex, NumaIndex>,
     highest_cpu_index: CpuIndex,
+    #[cfg(target_os = "windows")]
+    node_affinity: Vec<windows::GROUP_AFFINITY>,
+}
+
+// Manual Clone implementation because of the conditional `node_affinity` field.
+// We cannot use `#[derive(Clone)]` due to the platform-specific cfg attribute.
+impl Clone for NumaConfig {
+    fn clone(&self) -> Self {
+        Self {
+            nodes: self.nodes.clone(),
+            node_by_cpu: self.node_by_cpu.clone(),
+            highest_cpu_index: self.highest_cpu_index,
+            #[cfg(target_os = "windows")]
+            node_affinity: self.node_affinity.clone(),
+        }
+    }
 }
 
 impl Default for NumaConfig {
@@ -79,20 +99,15 @@ impl NumaConfig {
             nodes: Vec::new(),
             node_by_cpu: BTreeMap::new(),
             highest_cpu_index: 0,
+            #[cfg(target_os = "windows")]
+            node_affinity: Vec::new(),
         }
     }
 
     pub fn from_system() -> Self {
-        // Fallback for unsupported systems.
-        #[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
-        return Self::default();
-
-        #[cfg(all(target_os = "linux", not(target_os = "android")))]
-        {
-            let mut cfg = NumaConfig::from_system_numa();
-            cfg.remove_empty_numa_nodes();
-            cfg
-        }
+        let mut cfg = NumaConfig::from_system_numa();
+        cfg.remove_empty_numa_nodes();
+        cfg
     }
 
     pub const fn num_numa_nodes(&self) -> NumaIndex {
@@ -101,6 +116,12 @@ impl NumaConfig {
 
     pub const fn requires_memory_replication(&self) -> bool {
         self.nodes.len() > 1
+    }
+
+    /// Get the GROUP_AFFINITY mask for a NUMA node on Windows.
+    #[cfg(target_os = "windows")]
+    pub fn get_node_affinity(&self, node: NumaIndex) -> Option<windows::GROUP_AFFINITY> {
+        self.node_affinity.get(node).copied()
     }
 
     pub fn suggests_binding_threads(&self, threads: CpuIndex) -> bool {
@@ -168,6 +189,11 @@ impl NumaConfig {
             unsafe { sched_yield() };
         }
 
+        #[cfg(target_os = "windows")]
+        {
+            windows::bind_current_thread_to_numa_node(self, node);
+        }
+
         NumaReplicatedAccessToken::new(node)
     }
 
@@ -191,8 +217,15 @@ impl NumaConfig {
     }
 
     fn remove_empty_numa_nodes(&mut self) {
-        self.nodes.retain(|cpus| !cpus.is_empty());
+        let indices_to_keep: Vec<usize> =
+            self.nodes.iter().enumerate().filter(|(_, cpus)| !cpus.is_empty()).map(|(idx, _)| idx).collect();
 
+        // Rebuild nodes keeping only the non-empty entries
+        self.nodes = indices_to_keep.iter().map(|&idx| self.nodes[idx].clone()).collect();
+        #[cfg(target_os = "windows")]
+        windows::rebuild_affinity_for_kept_nodes(&mut self.node_affinity, &indices_to_keep);
+
+        // Rebuild CPU to node mapping
         self.node_by_cpu.clear();
         for (node, cpus) in self.nodes.iter().enumerate() {
             for &cpu in cpus {
@@ -200,12 +233,11 @@ impl NumaConfig {
             }
         }
 
-        self.highest_cpu_index = self.node_by_cpu.keys().copied().max().unwrap_or(0);
+        // Update highest_cpu_index from the remaining nodes
+        self.highest_cpu_index = self.nodes.iter().flat_map(|set| set.iter().copied()).max().unwrap_or(0);
     }
 
     fn from_system_numa() -> Self {
-        let mut cfg = NumaConfig::empty();
-
         #[cfg(all(target_os = "linux", not(target_os = "android")))]
         {
             let fallback = || {
@@ -242,7 +274,19 @@ impl NumaConfig {
             }
         }
 
-        cfg
+        #[cfg(target_os = "windows")]
+        {
+            windows::detect_windows_numa()
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            let mut cfg = NumaConfig::empty();
+            for cpu in 0..*SYSTEM_THREADS {
+                cfg.add_cpu_to_node(0, cpu);
+            }
+            cfg
+        }
     }
 }
 
@@ -372,5 +416,110 @@ impl<T: NumaReplicable> NumaReplicatedBase for NumaReplicated<T> {
 
     fn get_numa_config(&self) -> NumaConfig {
         self.ctx.get_numa_config()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_numa_config_empty() {
+        let cfg = NumaConfig::empty();
+        assert_eq!(cfg.nodes.len(), 0);
+        assert_eq!(cfg.num_numa_nodes(), 0);
+        assert!(!cfg.requires_memory_replication());
+    }
+
+    #[test]
+    fn test_numa_config_default() {
+        let cfg = NumaConfig::default();
+        assert_eq!(cfg.nodes.len(), 1);
+        assert_eq!(cfg.num_numa_nodes(), 1);
+        assert!(!cfg.requires_memory_replication());
+    }
+
+    #[test]
+    fn test_numa_config_clone() {
+        let mut cfg = NumaConfig::empty();
+        cfg.add_cpu_to_node(0, 0);
+        cfg.add_cpu_to_node(0, 1);
+        cfg.add_cpu_to_node(1, 2);
+
+        let cfg_clone = cfg.clone();
+        assert_eq!(cfg_clone.nodes.len(), 2);
+        assert_eq!(cfg_clone.num_numa_nodes(), 2);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_windows_numa_detection() {
+        let cfg = NumaConfig::from_system_numa();
+        println!("Detected {} NUMA nodes", cfg.num_numa_nodes());
+
+        // Basic sanity checks
+        assert!(cfg.num_numa_nodes() > 0, "System should have at least one NUMA node");
+
+        // Verify node/affinity sync on multi-node Windows systems.
+        // Single-node systems may fall back without affinity data (NUMA unavailable).
+        #[cfg(target_os = "windows")]
+        {
+            if cfg.num_numa_nodes() > 1 {
+                println!("Multi-node system detected: {} NUMA nodes", cfg.num_numa_nodes());
+                assert!(cfg.requires_memory_replication(), "Multi-node system should require memory replication");
+                assert_eq!(
+                    cfg.nodes.len(),
+                    cfg.node_affinity.len(),
+                    "Multi-node system: nodes and affinity vectors should have matching lengths"
+                );
+            } else {
+                println!("Single-node system (NUMA not detected or unavailable)");
+            }
+        }
+    }
+
+    #[test]
+    fn test_distribute_threads_among_numa_nodes() {
+        let mut cfg = NumaConfig::empty();
+        // Single node
+        cfg.add_cpu_to_node(0, 0);
+        cfg.add_cpu_to_node(0, 1);
+
+        let distribution = cfg.distribute_threads_among_numa_nodes(4);
+        assert_eq!(distribution.len(), 4);
+        assert!(distribution.iter().all(|&n| n == 0), "All threads should map to node 0");
+
+        // Two nodes
+        cfg.add_cpu_to_node(1, 2);
+        cfg.add_cpu_to_node(1, 3);
+
+        let distribution = cfg.distribute_threads_among_numa_nodes(4);
+        assert_eq!(distribution.len(), 4);
+        assert_eq!(distribution.iter().filter(|&&n| n == 0).count(), 2);
+        assert_eq!(distribution.iter().filter(|&&n| n == 1).count(), 2);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_windows_numa_get_node_affinity() {
+        let cfg = NumaConfig::from_system_numa();
+
+        // On multi-node systems, first node should have affinity data.
+        // On single-node fallback systems, affinity may be empty (NUMA unavailable).
+        if cfg.num_numa_nodes() > 1 {
+            let affinity_opt = cfg.get_node_affinity(0);
+            assert!(affinity_opt.is_some(), "Multi-node system: First NUMA node should have affinity info");
+
+            if let Some(affinity) = affinity_opt {
+                assert!(affinity.Mask > 0, "Affinity mask should have at least one processor");
+                println!("Node 0 affinity: Mask={:#x}, Group={}", affinity.Mask, affinity.Group);
+            }
+        } else {
+            println!("Single-node system: skipping affinity data check");
+        }
+
+        // Out-of-bounds access should return None
+        let invalid_affinity = cfg.get_node_affinity(1000);
+        assert!(invalid_affinity.is_none(), "Out-of-bounds node affinity should be None");
     }
 }
