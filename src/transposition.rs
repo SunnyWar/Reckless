@@ -7,13 +7,14 @@ pub const DEFAULT_TT_SIZE: usize = 16;
 const MEGABYTE: usize = 1024 * 1024;
 const CLUSTER_SIZE: usize = std::mem::size_of::<Cluster>();
 
-const ENTRIES_PER_CLUSTER: usize = 3;
+const ENTRIES_PER_CLUSTER: usize = 6;
 
 const AGE_CYCLE: u8 = 1 << 5;
 const AGE_MASK: u8 = AGE_CYCLE - 1;
 
-const _: () = assert!(std::mem::size_of::<Cluster>() == 32);
+const _: () = assert!(std::mem::size_of::<Cluster>() == 64);
 const _: () = assert!(std::mem::size_of::<InternalEntry>() == 8);
+const _: () = assert!(std::mem::offset_of!(Cluster, keys) % 16 == 0);
 
 #[derive(Copy, Clone)]
 pub struct Entry {
@@ -104,28 +105,42 @@ impl InternalEntry {
 }
 
 #[derive(Clone)]
-#[repr(align(32))]
+#[repr(align(64))]
 struct Cluster {
     entries: [InternalEntry; ENTRIES_PER_CLUSTER],
-    keys: u64,
+    keys: [u16; ENTRIES_PER_CLUSTER],
 }
 
 impl Cluster {
     fn key(&self, index: usize) -> u16 {
-        verification_key(self.keys >> (index * 16))
+        self.keys[index]
     }
 
     fn set_key(&mut self, index: usize, key: u16) {
-        self.keys &= !(0xFFFF << (index * 16));
-        self.keys |= (key as u64) << (index * 16);
+        self.keys[index] = key;
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn lookup_key(&self, key: u16) -> usize {
-        let bits = 0x0001_0001_0001_0001;
-        let needle = key as u64 * bits;
-        let zeros = self.keys ^ needle;
-        let matches = zeros.wrapping_sub(bits) & !zeros & (bits << 15);
-        (matches.trailing_zeros() / 16) as usize
+        unsafe {
+            use std::arch::x86_64::*;
+            let keys = _mm_load_si128(self.keys.as_ptr().cast());
+            let needle = _mm_set1_epi16(key as i16);
+            let cmp = _mm_cmpeq_epi16(keys, needle);
+            let mask = _mm_movemask_epi8(cmp) as u32;
+
+            if mask == 0 {
+                ENTRIES_PER_CLUSTER
+            } else {
+                let idx = (mask.trailing_zeros() / 2) as usize;
+                if idx < ENTRIES_PER_CLUSTER { idx } else { ENTRIES_PER_CLUSTER }
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    fn lookup_key(&self, key: u16) -> usize {
+        self.keys.iter().position(|&stored| stored == key).unwrap_or(ENTRIES_PER_CLUSTER)
     }
 }
 
