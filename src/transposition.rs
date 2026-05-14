@@ -210,6 +210,11 @@ impl TranspositionTable {
         // Used for checking if an entry exists
         debug_assert!(depth != TtDepth::NONE);
 
+        // skip storing shallow cut nodes in main search
+        if depth == 1 && bound != Bound::Exact {
+            return;
+        }
+
         let cluster = {
             let index = index(hash, self.len());
             unsafe { &mut *self.ptr().add(index) }
