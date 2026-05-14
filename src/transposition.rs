@@ -218,8 +218,8 @@ impl TranspositionTable {
         let key = verification_key(hash);
         let tt_age = self.age();
 
+        let lookup_index = cluster.lookup_key(key);
         let replacement_index = {
-            let lookup_index = cluster.lookup_key(key);
             if lookup_index < cluster.entries.len() {
                 lookup_index
             } else {
@@ -250,7 +250,8 @@ impl TranspositionTable {
             entry.mv = mv;
         }
 
-        if !force && key == entry_key && depth + 4 + 2 * tt_pv as i32 <= entry.depth() && entry.flags.age() == tt_age {
+        let is_same_key = replacement_index == lookup_index;
+        if is_same_key && !force && depth + 4 + 2 * tt_pv as i32 <= entry.depth() && entry.flags.age() == tt_age {
             return;
         }
 
