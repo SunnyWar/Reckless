@@ -232,7 +232,7 @@ impl TranspositionTable {
                         break;
                     }
 
-                    let quality = candidate.depth() - 4 * candidate.relative_age(tt_age);
+                    let quality = candidate.depth() - 6 * candidate.relative_age(tt_age);
                     if quality < lowest_quality {
                         replacement_index = Some(index);
                         lowest_quality = quality;
