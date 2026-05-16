@@ -10,6 +10,7 @@ const H_FILE: u64 = A_FILE << 7;
 const FILE_B: i8 = 1;
 const FILE_H: i8 = 7;
 
+#[derive(Clone, Copy)]
 pub enum Color {
     White,
     Black,

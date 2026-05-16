@@ -33,7 +33,7 @@ impl ThreadPool {
         }
     }
 
-    pub fn new(shared: Arc<SharedContext>) -> Self {
+    pub fn new(shared: &Arc<SharedContext>) -> Self {
         shared.numa_context.set_thread_count(1);
 
         let workers = make_worker_threads(1);
@@ -52,7 +52,7 @@ impl ThreadPool {
         self.workers = make_worker_threads(threads);
 
         std::mem::drop(self.vector.drain(..));
-        self.vector = make_thread_data(shared, &self.workers);
+        self.vector = make_thread_data(&shared, &self.workers);
     }
 
     pub fn main_thread(&mut self) -> &mut ThreadData {
@@ -73,11 +73,11 @@ impl ThreadPool {
         shared.numa_context.set_thread_count(self.workers.len());
 
         std::mem::drop(self.vector.drain(..));
-        self.vector = make_thread_data(shared, &self.workers);
+        self.vector = make_thread_data(&shared, &self.workers);
     }
 
     pub fn execute_searches(
-        &mut self, time_manager: TimeManager, report: Report, multi_pv: usize, board: &Board,
+        &mut self, time_manager: &TimeManager, report: Report, multi_pv: usize, board: &Board,
         shared: &Arc<SharedContext>,
     ) {
         shared.tt.increment_age();
@@ -270,7 +270,7 @@ fn make_worker_threads(num_threads: usize) -> Vec<WorkerThread> {
     std::iter::repeat_with(make_worker_thread).take(num_threads).collect()
 }
 
-fn make_thread_data(shared: Arc<SharedContext>, worker_threads: &[WorkerThread]) -> Vec<ThreadData> {
+fn make_thread_data(shared: &Arc<SharedContext>, worker_threads: &[WorkerThread]) -> Vec<ThreadData> {
     std::thread::scope(|scope| -> Vec<ThreadData> {
         let cfg = shared.numa_context.get_numa_config();
         let should_bind = cfg.suggests_binding_threads(worker_threads.len());
@@ -281,7 +281,7 @@ fn make_thread_data(shared: Arc<SharedContext>, worker_threads: &[WorkerThread])
             .enumerate()
             .map(|(index, worker)| {
                 let (tx, rx) = std::sync::mpsc::channel();
-                let shared = shared.clone();
+                let shared = Arc::clone(shared);
                 let cfg = cfg.clone();
                 let numa_node = numa_nodes[index];
                 let join_handle = scope.spawn_into(

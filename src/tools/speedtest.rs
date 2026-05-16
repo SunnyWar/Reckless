@@ -85,7 +85,7 @@ pub fn speedtest(args: &[&str]) {
     let shared = Arc::new(SharedContext::default());
     shared.tt.resize(threads, hash);
 
-    let mut pool = ThreadPool::new(shared.clone());
+    let mut pool = ThreadPool::new(&shared);
     pool.set_count(threads);
 
     for (index, &position) in POSITIONS.iter().take(WARMUP_POSITIONS_COUNT).enumerate() {
@@ -93,7 +93,7 @@ pub fn speedtest(args: &[&str]) {
 
         let board = Board::from_fen(position).unwrap();
         let time_manager = TimeManager::new(Limits::Time(ms_per_position), 0, 0);
-        pool.execute_searches(time_manager, Report::None, 1, &board, &shared);
+        pool.execute_searches(&time_manager, Report::None, 1, &board, &shared);
     }
     eprintln!();
 
@@ -105,7 +105,7 @@ pub fn speedtest(args: &[&str]) {
 
         let board = Board::from_fen(position).unwrap();
         let time_manager = TimeManager::new(Limits::Time(ms_per_position), 0, 0);
-        pool.execute_searches(time_manager, Report::None, 1, &board, &shared);
+        pool.execute_searches(&time_manager, Report::None, 1, &board, &shared);
 
         nodes += shared.nodes.aggregate();
     }

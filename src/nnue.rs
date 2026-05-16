@@ -109,7 +109,7 @@ pub struct Network {
 }
 
 impl Network {
-    pub fn new(parameters: Arc<ParametersHandle>) -> Self {
+    pub fn new(parameters: &Arc<ParametersHandle>) -> Self {
         let mut nnz_table = vec![SparseEntry { indexes: [0; 8], count: 0 }; 256];
 
         for (byte, entry) in nnz_table.iter_mut().enumerate() {
@@ -128,9 +128,9 @@ impl Network {
         Self {
             parameters: parameters.clone(),
             index: 0,
-            pst_stack: vec![PstAccumulator::new(&parameters); MAX_PLY].into_boxed_slice(),
+            pst_stack: vec![PstAccumulator::new(parameters); MAX_PLY].into_boxed_slice(),
             threat_stack: vec![ThreatAccumulator::new(); MAX_PLY].into_boxed_slice(),
-            cache: AccumulatorCache::new(&parameters),
+            cache: AccumulatorCache::new(parameters),
             nnz_table: nnz_table.into_boxed_slice(),
         }
     }

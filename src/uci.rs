@@ -40,7 +40,7 @@ impl Default for Settings {
 pub fn message_loop(mut buffer: VecDeque<String>) {
     let shared = Arc::new(SharedContext::default());
     let mut settings = Settings::default();
-    let mut threads = ThreadPool::new(shared.clone());
+    let mut threads = ThreadPool::new(&shared);
     let mut board = Board::starting_position();
 
     let rx = spawn_listener(shared.clone());
@@ -187,7 +187,7 @@ fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc
     let limits = parse_limits(board.side_to_move(), tokens);
     let time_manager = TimeManager::new(limits, board.fullmove_number(), settings.move_overhead);
 
-    threads.execute_searches(time_manager, settings.report, settings.multi_pv, board, shared);
+    threads.execute_searches(&time_manager, settings.report, settings.multi_pv, board, shared);
 
     if threads[0].root_moves.is_empty() {
         println!("bestmove (none)");

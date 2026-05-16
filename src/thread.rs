@@ -172,7 +172,7 @@ impl ThreadData {
             board: Board::starting_position(),
             time_manager: TimeManager::new(Limits::Infinite, 0, 0),
             stack: Stack::new(),
-            nnue: Network::new(parameters),
+            nnue: Network::new(&parameters),
             root_moves: Vec::new(),
             pv_table: PrincipalVariationTable::default(),
             noisy_history: NoisyHistory::default(),

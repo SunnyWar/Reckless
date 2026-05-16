@@ -83,7 +83,7 @@ pub fn bench<const PRETTY: bool>(args: &[&str]) {
     let shared = Arc::new(SharedContext::default());
     shared.tt.resize(threads, hash);
 
-    let mut pool = ThreadPool::new(shared.clone());
+    let mut pool = ThreadPool::new(&shared);
     pool.set_count(threads);
 
     if PRETTY {
@@ -102,7 +102,7 @@ pub fn bench<const PRETTY: bool>(args: &[&str]) {
         let board = Board::from_fen(position).unwrap();
         let time_manager = TimeManager::new(Limits::Depth(depth), 0, 0);
 
-        pool.execute_searches(time_manager, Report::None, 1, &board, &shared);
+        pool.execute_searches(&time_manager, Report::None, 1, &board, &shared);
 
         nodes += shared.nodes.aggregate();
 

@@ -218,7 +218,7 @@ impl NumaConfig {
                 cfg
             };
 
-            let Ok(node_ids) = fs::read_to_string("/sys/devices/system/node/online").map(remove_whitespace) else {
+            let Ok(node_ids) = fs::read_to_string("/sys/devices/system/node/online").map(|s| remove_whitespace(&s)) else {
                 return fallback();
             };
 
@@ -233,7 +233,7 @@ impl NumaConfig {
                     return fallback();
                 }
 
-                let cpu_ids = remove_whitespace(cpu_ids.unwrap());
+                let cpu_ids = remove_whitespace(&cpu_ids.unwrap());
                 for cpu in parse_cpu_indices(&cpu_ids) {
                     if PROCESSOR_AFFINITY.contains(&cpu) {
                         cfg.add_cpu_to_node(node, cpu);
@@ -269,7 +269,7 @@ fn parse_cpu_indices(cpu_ids: &str) -> Vec<usize> {
     indices
 }
 
-fn remove_whitespace(s: String) -> String {
+fn remove_whitespace(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
