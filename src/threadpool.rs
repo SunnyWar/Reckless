@@ -77,7 +77,7 @@ impl ThreadPool {
     }
 
     pub fn execute_searches(
-        &mut self, time_manager: TimeManager, report: Report, multi_pv: usize, board: &Board,
+        &mut self, time_manager: &TimeManager, report: Report, multi_pv: usize, board: &Board,
         shared: &Arc<SharedContext>,
     ) {
         shared.tt.increment_age();
@@ -272,6 +272,7 @@ fn make_worker_threads(num_threads: usize) -> Vec<WorkerThread> {
     std::iter::repeat_with(make_worker_thread).take(num_threads).collect()
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn make_thread_data(shared: Arc<SharedContext>, worker_threads: &[WorkerThread]) -> Vec<ThreadData> {
     std::thread::scope(|scope| -> Vec<ThreadData> {
         let cfg = shared.numa_context.get_numa_config();

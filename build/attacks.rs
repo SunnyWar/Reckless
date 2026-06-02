@@ -36,6 +36,7 @@ pub fn shift_dirs(bb: u64, dirs: &[i8]) -> u64 {
     targets
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn pawn_attacks(square: u8, color: Color) -> u64 {
     if matches!(color, Color::White) { shift_dirs(1 << square, &[7, 9]) } else { shift_dirs(1 << square, &[-7, -9]) }
 }

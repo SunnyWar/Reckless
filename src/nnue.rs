@@ -109,6 +109,7 @@ pub struct Network {
 }
 
 impl Network {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(parameters: Arc<ParametersHandle>) -> Self {
         let mut nnz_table = vec![SparseEntry { indexes: [0; 8], count: 0 }; 256];
 

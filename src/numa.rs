@@ -269,7 +269,7 @@ fn parse_cpu_indices(cpu_ids: &str) -> Vec<usize> {
     indices
 }
 
-fn remove_whitespace(s: String) -> String {
+fn remove_whitespace(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 

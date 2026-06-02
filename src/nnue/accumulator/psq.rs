@@ -7,6 +7,25 @@ use crate::{
 
 pub type PstFeature = u16;
 
+pub struct FeatureList(ArrayVec<PstFeature, 64>);
+
+impl FeatureList {
+    #[inline]
+    pub const fn new() -> Self {
+        Self(ArrayVec::new())
+    }
+
+    #[inline]
+    pub fn push(&mut self, feature: PstFeature) {
+        self.0.push(feature);
+    }
+
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, PstFeature> {
+        self.0.iter()
+    }
+}
+
 #[derive(Clone)]
 pub struct PstDelta {
     pub mv: Move,
@@ -36,8 +55,8 @@ impl PstAccumulator {
         let entry = &mut cache.entries[pov][(king.is_kingside()) as usize]
             [INPUT_BUCKETS_LAYOUT[king as usize ^ (56 * pov as usize)] as usize];
 
-        let mut adds = ArrayVec::<PstFeature, 64>::new();
-        let mut subs = ArrayVec::<PstFeature, 64>::new();
+        let mut adds = FeatureList::new();
+        let mut subs = FeatureList::new();
 
         for color in [Color::White, Color::Black] {
             for piece_type in [
@@ -57,7 +76,7 @@ impl PstAccumulator {
             }
         }
 
-        unsafe { apply_changes(entry, adds, subs, parameters) };
+        unsafe { apply_changes(entry, &adds, &subs, parameters) };
 
         entry.pieces = board.pieces_bbs();
         entry.colors = board.colors_bbs();
@@ -69,7 +88,7 @@ impl PstAccumulator {
     #[inline]
     #[cfg(not(target_feature = "avx512vbmi2"))]
     fn push_features(
-        features: &mut ArrayVec<PstFeature, 64>, color: Color, piece_type: PieceType, bb: Bitboard, king: Square,
+        features: &mut FeatureList, color: Color, piece_type: PieceType, bb: Bitboard, king: Square,
         pov: Color,
     ) {
         for square in bb {
@@ -80,7 +99,7 @@ impl PstAccumulator {
     #[inline]
     #[cfg(target_feature = "avx512vbmi2")]
     fn push_features(
-        features: &mut ArrayVec<PstFeature, 64>, color: Color, piece_type: PieceType, bb: Bitboard, king: Square,
+        features: &mut FeatureList, color: Color, piece_type: PieceType, bb: Bitboard, king: Square,
         pov: Color,
     ) {
         unsafe {
@@ -95,7 +114,7 @@ impl PstAccumulator {
             );
             let squares = _mm512_castsi512_si128(_mm512_maskz_compress_epi8(bb.0, iota));
             let to_write = _mm256_xor_si256(_mm256_set1_epi16(base as i16), _mm256_cvtepu8_epi16(squares));
-            features.unchecked_write(|data| {
+            features.0.unchecked_write(|data| {
                 _mm256_storeu_si256(data.cast(), to_write);
                 bb.count()
             });
@@ -167,8 +186,9 @@ impl PstAccumulator {
 const REGISTERS: usize = 8;
 const _: () = assert!(L1_SIZE.is_multiple_of(REGISTERS * simd::I16_LANES));
 
+
 unsafe fn apply_changes(
-    entry: &mut CacheEntry, adds: ArrayVec<PstFeature, 64>, subs: ArrayVec<PstFeature, 64>, parameters: &Parameters,
+    entry: &mut CacheEntry, adds: &FeatureList, subs: &FeatureList, parameters: &Parameters,
 ) {
     let mut registers: [_; REGISTERS] = std::mem::zeroed();
 
