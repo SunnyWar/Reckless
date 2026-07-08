@@ -425,10 +425,7 @@ fn parse_limits(color: Color, tokens: &[&str]) -> Limits {
     let main = main.unwrap_or_default();
     let inc = inc.unwrap_or_default();
 
-    match moves {
-        Some(moves) => Limits::Cyclic(main, inc, moves),
-        None => Limits::Fischer(main, inc),
-    }
+    moves.map_or(Limits::Fischer(main, inc), |moves| Limits::Cyclic(main, inc, moves))
 }
 
 #[cfg(test)]

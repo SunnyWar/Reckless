@@ -30,10 +30,7 @@ impl ThreadPool {
     pub fn available_threads() -> usize {
         const MINIMUM_THREADS: usize = 512;
 
-        match std::thread::available_parallelism() {
-            Ok(threads) => (4 * threads.get()).max(MINIMUM_THREADS),
-            Err(_) => MINIMUM_THREADS,
-        }
+        std::thread::available_parallelism().map_or(MINIMUM_THREADS, |threads| (4 * threads.get()).max(MINIMUM_THREADS))
     }
 
     pub fn new(shared: Arc<SharedContext>) -> Self {

@@ -97,7 +97,7 @@ impl TimeManager {
         self.limits.clone()
     }
 
-    pub fn use_time_management(&self) -> bool {
+    pub const fn use_time_management(&self) -> bool {
         matches!(self.limits, Limits::Fischer(..) | Limits::Cyclic(..) | Limits::Time(_))
     }
 }

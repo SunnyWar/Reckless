@@ -176,30 +176,20 @@ impl TranspositionTable {
     }
 
     pub fn read(&self, hash: u64, halfmove_clock: u8, ply: isize) -> Option<Entry> {
-        let cluster = {
-            let index = index(hash, self.len());
-            unsafe { &*self.ptr().add(index) }
-        };
-
+        let index = index(hash, self.len());
+        let cluster = unsafe { &*self.ptr().add(index) };
         let key = verification_key(hash);
         let index = cluster.lookup_key(key);
+        let entry = cluster.entries.get(index)?;
 
-        if index < cluster.entries.len() {
-            let entry = &cluster.entries[index];
-
-            let hit = Entry {
-                depth: entry.depth(),
-                score: score_from_tt(entry.score as i32, ply, halfmove_clock),
-                raw_eval: entry.raw_eval as i32,
-                bound: entry.flags.bound(),
-                tt_pv: entry.flags.tt_pv(),
-                mv: entry.mv,
-            };
-
-            Some(hit)
-        } else {
-            None
-        }
+        Some(Entry {
+            depth: entry.depth(),
+            score: score_from_tt(entry.score as i32, ply, halfmove_clock),
+            raw_eval: entry.raw_eval as i32,
+            bound: entry.flags.bound(),
+            tt_pv: entry.flags.tt_pv(),
+            mv: entry.mv,
+        })
     }
 
     #[allow(clippy::too_many_arguments)]

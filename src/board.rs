@@ -68,7 +68,7 @@ impl Board {
         self.halfmove_number / 2
     }
 
-    pub fn side_to_move(&self) -> Color {
+    pub const fn side_to_move(&self) -> Color {
         Color::new((self.halfmove_number & 1) as u8)
     }
 

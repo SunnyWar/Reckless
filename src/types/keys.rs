@@ -8,7 +8,7 @@ pub struct Keys {
 }
 
 impl Keys {
-    pub fn full(&self) -> u64 {
+    pub const fn full(&self) -> u64 {
         self.full
     }
 
@@ -31,7 +31,7 @@ impl Keys {
         }
     }
 
-    pub fn toggle_side(&mut self) {
+    pub const fn toggle_side(&mut self) {
         self.full ^= ZOBRIST.side;
     }
 
